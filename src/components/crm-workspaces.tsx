@@ -1,7 +1,7 @@
 ﻿import { useMemo, useState, useEffect, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Activity, TriangleAlert as AlertTriangle, ArrowRight, CalendarDays, Check, ChevronLeft, ChevronRight, ClipboardList, Clock3, Copy, LayoutDashboard, LayoutGrid, LogOut, Menu, Phone, Plus, RefreshCw, Search, Shield, Radio, Users, X } from "lucide-react";
+import { Activity, TriangleAlert as AlertTriangle, ArrowRight, CalendarDays, Check, ChevronLeft, ChevronRight, ClipboardList, Clock3, Copy, Database, LayoutDashboard, LayoutGrid, LogOut, Menu, Phone, Plus, RefreshCw, Search, Shield, Radio, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   getCurrentUserFn,
@@ -38,6 +38,7 @@ import { dialCustomerApi, hangupCallApi, updateStageApi, type DialResult } from 
 import type { AgentTelephonyState, Customer } from "./telephony/types";
 import { AgentProvisioningView } from "./admin/AgentProvisioningView";
 import { CampaignManager } from "./admin/CampaignManager";
+import { LeadListManager } from "./admin/LeadListManager";
 
 type ActivityRow = {
   id: string;
@@ -489,6 +490,7 @@ export function CrmWorkspace({ mode }: { mode: WorkspaceMode }) {
         { id: "sync", label: "Agility Sync", icon: RefreshCw },
         { id: "agents", label: "Agent Provisioning", icon: Users },
         { id: "campaigns", label: "Campaigns", icon: Radio },
+        { id: "leadlists", label: "Lead Lists", icon: Database },
       ];
 
   const heading =
@@ -501,6 +503,7 @@ export function CrmWorkspace({ mode }: { mode: WorkspaceMode }) {
           sync: "Agility Sync",
           agents: "Agent & SIP Provisioning",
           campaigns: "Campaign & Queue Control",
+          leadlists: "Lead List Management",
         } as Record<string, string>
       )[view]
       : view === "kanban"
@@ -752,6 +755,7 @@ export function CrmWorkspace({ mode }: { mode: WorkspaceMode }) {
           {mode === "admin" && view === "sync" && <AgilitySync />}
           {mode === "admin" && view === "agents" && <AgentProvisioningView />}
           {mode === "admin" && view === "campaigns" && <CampaignManager />}
+          {mode === "admin" && view === "leadlists" && <LeadListManager />}
         </div>
       </main>
       <OutcomeDialog
