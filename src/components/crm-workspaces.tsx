@@ -1,6 +1,7 @@
 ﻿import { useMemo, useState, useEffect, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";import { Activity, TriangleAlert as AlertTriangle, ArrowRight, CalendarDays, Check, ChevronLeft, ChevronRight, ClipboardList, Clock3, Copy, LayoutDashboard, LayoutGrid, LogOut, Menu, Phone, Plus, RefreshCw, Search, Shield, Radio, Users, X } from "lucide-react"";
+import { useNavigate } from "@tanstack/react-router";
+import { Activity, TriangleAlert as AlertTriangle, ArrowRight, CalendarDays, Check, ChevronLeft, ChevronRight, ClipboardList, Clock3, Copy, LayoutDashboard, LayoutGrid, LogOut, Menu, Phone, Plus, RefreshCw, Search, Shield, Radio, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   getCurrentUserFn,
@@ -36,6 +37,7 @@ import { SoftphoneBar } from "./telephony/SoftphoneBar";
 import { dialCustomerApi, hangupCallApi, updateStageApi, type DialResult } from "./telephony/telephony-service";
 import type { AgentTelephonyState, Customer } from "./telephony/types";
 import { AgentProvisioningView } from "./admin/AgentProvisioningView";
+import { CampaignManager } from "./admin/CampaignManager";
 
 type ActivityRow = {
   id: string;
@@ -486,6 +488,7 @@ export function CrmWorkspace({ mode }: { mode: WorkspaceMode }) {
         { id: "grid", label: "Master Grid", icon: ClipboardList },
         { id: "sync", label: "Agility Sync", icon: RefreshCw },
         { id: "agents", label: "Agent Provisioning", icon: Users },
+        { id: "campaigns", label: "Campaigns", icon: Radio },
       ];
 
   const heading =
@@ -497,6 +500,7 @@ export function CrmWorkspace({ mode }: { mode: WorkspaceMode }) {
           grid: "Master Lead & Order Grid",
           sync: "Agility Sync",
           agents: "Agent & SIP Provisioning",
+          campaigns: "Campaign & Queue Control",
         } as Record<string, string>
       )[view]
       : view === "kanban"
@@ -747,6 +751,7 @@ export function CrmWorkspace({ mode }: { mode: WorkspaceMode }) {
           )}
           {mode === "admin" && view === "sync" && <AgilitySync />}
           {mode === "admin" && view === "agents" && <AgentProvisioningView />}
+          {mode === "admin" && view === "campaigns" && <CampaignManager />}
         </div>
       </main>
       <OutcomeDialog
