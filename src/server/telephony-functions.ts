@@ -104,8 +104,9 @@ export const dialCustomerFn = createServerFn({ method: "POST" })
     return data;
   })
   .handler(async ({ data }) => {
+    const user = await requireUser();
     const phone = await requireAssignedCustomerPhone(data.customerId);
-    unwrapDialer(await dialNumber({ phone, customerId: data.customerId }));
+    unwrapDialer(await dialNumber({ phone, customerId: data.customerId, agentCode: user.agentCode ?? null }));
     return { success: true };
   });
 
@@ -118,13 +119,13 @@ export const dialNumberFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await requireUser();
     const match = await findVisibleCustomerByPhone(user, data.phone);
-    unwrapDialer(await dialNumber({ phone: data.phone, customerId: match?.id ?? null }));
+    unwrapDialer(await dialNumber({ phone: data.phone, customerId: match?.id ?? null, agentCode: user.agentCode ?? null }));
     return { customerId: match?.id ?? null, customerName: match?.name ?? null };
   });
 
 export const hangupCallFn = createServerFn({ method: "POST" }).handler(async () => {
-  await requireUser();
-  unwrapDialer(await hangUpCall());
+  const user = await requireUser();
+  unwrapDialer(await hangUpCall({ agentCode: user.agentCode ?? null }));
   return { success: true };
 });
 
@@ -134,8 +135,8 @@ export const setCallHoldFn = createServerFn({ method: "POST" })
     return data;
   })
   .handler(async ({ data }) => {
-    await requireUser();
-    unwrapDialer(await setHold(data.enabled));
+    const user = await requireUser();
+    unwrapDialer(await setHold(data.enabled, { agentCode: user.agentCode ?? null }));
     return { success: true };
   });
 
@@ -145,8 +146,8 @@ export const setCallMuteFn = createServerFn({ method: "POST" })
     return data;
   })
   .handler(async ({ data }) => {
-    await requireUser();
-    unwrapDialer(await setMute(data.enabled));
+    const user = await requireUser();
+    unwrapDialer(await setMute(data.enabled, { agentCode: user.agentCode ?? null }));
     return { success: true };
   });
 
@@ -160,9 +161,16 @@ export const submitCallDispositionFn = createServerFn({ method: "POST" })
     return data;
   })
   .handler(async ({ data }) => {
+    const user = await requireUser();
     const phone = await requireAssignedCustomerPhone(data.customerId);
     unwrapDialer(
-      await postDisposition({ phone, disposition: data.disposition, notes: data.notes }),
+      await postDisposition({
+        phone,
+        disposition: data.disposition,
+        notes: data.notes,
+        customerId: data.customerId,
+        agentCode: user.agentCode ?? null,
+      }),
     );
     return { success: true };
   });

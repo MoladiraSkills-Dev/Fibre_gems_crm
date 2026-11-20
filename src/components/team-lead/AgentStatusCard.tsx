@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 export type AgentAction =
   | { kind: "monitor"; agent: LiveAgent; mode: "LISTEN" | "WHISPER" | "BARGE" }
   | { kind: "pause"; agent: LiveAgent }
+  | { kind: "resume"; agent: LiveAgent }
   | { kind: "hangup"; agent: LiveAgent };
 
 const STATUS_BADGE: Record<LiveAgent["status"], { label: string; className: string }> = {
@@ -59,25 +60,36 @@ export function AgentStatusCard({
     setLocalSec(secInState);
   }, [secInState]);
 
-  // Tick elapsed time smoothly every second
+  // Tick elapsed time smoothly every second ONLY if agent is in a call or on pause
   useEffect(() => {
+    if (agent.status !== "INCALL" && agent.status !== "PAUSED") return;
     const timer = setInterval(() => {
       setLocalSec((s) => s + 1);
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [agent.status]);
+
+  const isTeamLeader = Boolean(
+    agent.is_team_leader ||
+    agent.role === "team_leader" ||
+    agent.agent_code?.toUpperCase().startsWith("TML")
+  );
 
   const overThreshold =
     (agent.status === "PAUSED" && localSec > PAUSE_WARNING_SECONDS) ||
     (agent.status === "INCALL" && localSec > CALL_WARNING_SECONDS);
   const badgeLabel =
     agent.status === "PAUSED" && agent.pause_code ? `Paused · ${agent.pause_code}` : badge.label;
-  const inCall = agent.status === "INCALL" && agent.active_customer !== null;
+  const inCall = agent.status === "INCALL";
 
   return (
     <article
-      className={`flex flex-col gap-4 rounded-2xl border p-4 backdrop-blur-xl transition-colors ${
-        overThreshold ? "border-amber-500/50 bg-amber-500/10" : "border-border bg-card"
+      className={`flex flex-col gap-4 rounded-2xl border p-4 backdrop-blur-xl transition-all ${
+        inCall
+          ? "border-emerald-500/50 bg-emerald-500/10 shadow-lg shadow-emerald-500/5 ring-1 ring-emerald-500/30"
+          : overThreshold
+          ? "border-amber-500/50 bg-amber-500/10"
+          : "border-border bg-card"
       }`}
     >
       <header className="flex items-start justify-between gap-3">
@@ -86,7 +98,14 @@ export function AgentStatusCard({
             {initials(agent.full_name || "MUKONA")}
           </div>
           <div className="min-w-0">
-            <p className="truncate font-semibold text-foreground">{agent.full_name || "MUKONA"}</p>
+            <div className="flex items-center gap-2">
+              <p className="truncate font-semibold text-foreground">{agent.full_name || "MUKONA"}</p>
+              {isTeamLeader && (
+                <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                  Team Leader
+                </span>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
               {agent.agent_code && agent.agent_code !== "fg_api"
                 ? `Agent ID: ${agent.agent_code}`
@@ -103,47 +122,62 @@ export function AgentStatusCard({
         <span className="text-muted-foreground">Time in state</span>
         <span
           className={`font-mono font-semibold tabular-nums ${
-            overThreshold ? "animate-pulse text-amber-300" : "text-foreground"
+            inCall
+              ? "text-emerald-400 font-bold"
+              : overThreshold
+              ? "animate-pulse text-amber-300"
+              : "text-foreground"
           }`}
         >
           {formatDuration(localSec)}
         </span>
       </div>
 
-      {agent.status === "INCALL" && agent.active_customer && (
-        <div className="rounded-xl border border-border bg-background/60 p-3 text-sm">
-          <p className="font-medium text-foreground">{agent.active_customer.full_name}</p>
-          <p className="text-xs text-muted-foreground">
-            {maskPhone(agent.active_customer.phone)} · {agent.active_customer.suburb}
-          </p>
+      {inCall && (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+          {agent.active_customer ? (
+            <>
+              <p className="font-medium text-foreground">{agent.active_customer.full_name}</p>
+              <p className="text-xs text-muted-foreground">
+                {maskPhone(agent.active_customer.phone)} · {agent.active_customer.suburb}
+              </p>
+            </>
+          ) : (
+            <p className="font-medium text-emerald-400">Active live call in progress</p>
+          )}
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        {inCall && (
-          <>
-            <Button size="sm" variant="outline" disabled={pending} onClick={() => onAction({ kind: "monitor", agent, mode: "LISTEN" })}>
-              Listen
+      {!isTeamLeader && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {inCall && (
+            <>
+              <Button size="sm" variant="outline" disabled={pending} onClick={() => onAction({ kind: "monitor", agent, mode: "LISTEN" })}>
+                Listen
+              </Button>
+              <Button size="sm" variant="outline" disabled={pending} onClick={() => onAction({ kind: "monitor", agent, mode: "WHISPER" })}>
+                Whisper
+              </Button>
+              <Button size="sm" variant="outline" disabled={pending} onClick={() => onAction({ kind: "monitor", agent, mode: "BARGE" })}>
+                Barge
+              </Button>
+              <Button size="sm" variant="destructive" disabled={pending} onClick={() => onAction({ kind: "hangup", agent })}>
+                Force hang up
+              </Button>
+            </>
+          )}
+          {agent.status === "PAUSED" && (
+            <Button size="sm" variant="outline" className="border-cyan-500/40 text-cyan-400" disabled={pending} onClick={() => onAction({ kind: "resume", agent })}>
+              Resume
             </Button>
-            <Button size="sm" variant="outline" disabled={pending} onClick={() => onAction({ kind: "monitor", agent, mode: "WHISPER" })}>
-              Whisper
+          )}
+          {agent.status === "READY" && (
+            <Button size="sm" variant="outline" disabled={pending} onClick={() => onAction({ kind: "pause", agent })}>
+              Force pause
             </Button>
-            <Button size="sm" variant="outline" disabled={pending} onClick={() => onAction({ kind: "monitor", agent, mode: "BARGE" })}>
-              Barge
-            </Button>
-          </>
-        )}
-        {agent.status !== "PAUSED" && agent.status !== "DEAD" && (
-          <Button size="sm" variant="outline" disabled={pending} onClick={() => onAction({ kind: "pause", agent })}>
-            Force pause
-          </Button>
-        )}
-        {agent.status === "INCALL" && (
-          <Button size="sm" variant="destructive" disabled={pending} onClick={() => onAction({ kind: "hangup", agent })}>
-            Force hang up
-          </Button>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </article>
   );
 }

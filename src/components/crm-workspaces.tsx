@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, type FormEvent } from "react";
+﻿import { useMemo, useState, useEffect, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -188,8 +188,8 @@ export function CrmWorkspace({ mode }: { mode: WorkspaceMode }) {
   });
 
   const [referralContext, setReferralContext] = useState<{
-    referralCode?: string;
-    customerName?: string;
+    referralCode?: string | undefined;
+    customerName?: string | undefined;
   } | null>(null);
 
   const handleCaptureReferral = (cust: Customer) => {
@@ -1395,7 +1395,7 @@ function OutcomeDialog({
               id="outcome_notes"
               value={outcomeNotes}
               onChange={(e) => setOutcomeNotes(e.target.value)}
-              placeholder="Optional call notes�"
+              placeholder="Optional call notes..."
               className="mt-1 min-h-20 w-full rounded-lg border border-input bg-background p-3 text-sm text-foreground"
             />
           </div>

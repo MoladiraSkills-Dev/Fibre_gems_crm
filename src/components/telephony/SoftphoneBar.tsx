@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Check, ChevronDown, Phone, PhoneOff } from "lucide-react";
 import { toast } from "sonner";
 import type { AgentTelephonyState, Customer } from "./types";
@@ -12,6 +12,7 @@ import { endActiveCall } from "./CallControls";
 import { ActiveCallPanel } from "./ActiveCallPanel";
 import { OUTCOMES, outcomeFor } from "./pipeline-stages";
 import { getCurrentUserFn } from "@/server/functions";
+import { useTelephonySocket, type TelephonySocketStatus } from "./use-telephony-socket";
 
 const PAUSE_CODES = ["LUNCH", "TEA", "MEETING", "TRAINING", "WRAPUP"];
 interface SoftphoneBarProps {
@@ -50,6 +51,98 @@ export function SoftphoneBar({
     });
     return () => { active = false; };
   }, []);
+
+  // ── Persistent WebSocket: stays connected regardless of call state ──────────
+  type CallStateEvent = {
+    type?: string;
+    agent_status?: string;
+    call_state?: string;
+    duration_seconds?: number;
+    lead_id?: string | number | null;
+  };
+
+  // Track callProgress in a ref so the callback doesn't become stale
+  const callProgressRef = useRef(telephonyState.callProgress);
+  useEffect(() => { callProgressRef.current = telephonyState.callProgress; }, [telephonyState.callProgress]);
+
+  const onCallState = useCallback((event: CallStateEvent) => {
+    if (event.type && event.type !== "CALL_STATE" && event.type !== "INIT_STATE") return;
+    const callState = event.call_state?.toLowerCase();
+    const agentStatus = event.agent_status?.toLowerCase();
+    const duration = Number.isFinite(event.duration_seconds)
+      ? Math.max(0, Math.floor(event.duration_seconds ?? 0))
+      : 0;
+    const leadId = event.lead_id == null ? undefined : String(event.lead_id);
+
+    if (callState === "ringing") {
+      setTelephonyState((prev) => ({
+        ...prev,
+        agentStatus: "in_call",
+        callProgress: "ringing",
+        callDurationSeconds: 0,
+        ...(leadId ? { viciLeadId: leadId } : {}),
+      }));
+      return;
+    }
+
+    if (callState === "connected") {
+      if (callProgressRef.current !== "connected") {
+        toast.success("Call connected — customer answered.");
+      }
+      setTelephonyState((prev) => ({
+        ...prev,
+        agentStatus: "in_call",
+        callProgress: "connected",
+        // Only advance the timer from the WS; don't snap backwards
+        callDurationSeconds: prev.callProgress === "connected"
+          ? Math.max(prev.callDurationSeconds, duration)
+          : duration,
+        ...(leadId ? { viciLeadId: leadId } : {}),
+      }));
+      return;
+    }
+
+    if (callState === "idle" || callState === "ready") {
+      // Only transition to ended if the call was previously active/connected or ringing for a few seconds
+      if (callProgressRef.current === "connected") {
+        toast.info("Call ended — choose an outcome to continue.");
+        setTelephonyState((prev) => ({
+          ...prev,
+          agentStatus: "ready",
+          callProgress: null,
+          callDurationSeconds: duration || prev.callDurationSeconds,
+        }));
+      } else if (callProgressRef.current === "ringing" && duration > 0) {
+        toast.info("Call unanswered or disconnected.");
+        setTelephonyState((prev) => ({
+          ...prev,
+          agentStatus: "ready",
+          callProgress: null,
+          callDurationSeconds: 0,
+        }));
+      }
+    }
+  }, [setTelephonyState]);
+
+  const { status: socketStatus } = useTelephonySocket<CallStateEvent>({
+    path: "ws/telephony",
+    query: agentCode ? { agent_code: agentCode } : undefined,
+    enabled: Boolean(agentCode),
+    onMessage: onCallState,
+  });
+
+  // ── Smooth timer: local +1s tick between WS pushes (connected only) ─────────
+  useEffect(() => {
+    if (telephonyState.callProgress !== "connected") return;
+    const timer = setInterval(() => {
+      setTelephonyState((prev) =>
+        prev.callProgress === "connected"
+          ? { ...prev, callDurationSeconds: prev.callDurationSeconds + 1 }
+          : prev
+      );
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [telephonyState.callProgress, setTelephonyState]);
 
   const isCallActive =
     telephonyState.agentStatus === "in_call" || telephonyState.agentStatus === "dialing";
@@ -133,6 +226,7 @@ export function SoftphoneBar({
           telephonyState={telephonyState}
           setTelephonyState={setTelephonyState}
           activeCustomer={activeCustomer}
+          socketStatus={socketStatus}
           {...(agentCode ? { agentCode } : {})}
           onLogOutcome={onLogOutcome}
           {...(onOpenCustomerDetails ? { onOpenCustomerDetails } : {})}

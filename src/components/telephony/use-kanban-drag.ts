@@ -93,9 +93,9 @@ export function useKanbanDrag({ onSelect, onDrop }: UseKanbanDragOptions) {
   };
 
   const updateOverStage = (g: Gesture) => {
-    const stageId = elementAt(g.x, g.y, "[data-stage-id]")?.dataset.stageId ?? null;
-    if (stageId !== g.stageId) {
-      g.stageId = stageId;
+    const stageId = elementAt(g.x, g.y, "[data-stage-id]")?.dataset["stageId"] ?? null;
+    if (stageId !== g["stageId"]) {
+      g["stageId"] = stageId;
       setOverStageId(stageId);
     }
   };

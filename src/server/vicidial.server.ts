@@ -117,14 +117,14 @@ function normalizeStatus(raw: unknown): AgentStatus {
           : "offline";
   return {
     state,
-    phoneNumber: (r["phone_number"] as string) ?? r["phone"] ?? null ?? null,
+    phoneNumber: ((r["phone_number"] as string) ?? r["phone"] ?? null) as string | null,
     callSeconds: typeof r["call_seconds"] === "number" ? r["call_seconds"] : 0,
     campaign: (r["campaign"] as string) ?? null,
   };
 }
 
 export async function fetchAgentStatus(): Promise<RemiResult<AgentStatus>> {
-  const res = await remiFetch<unknown>("/api/v1/agent/status");
+  const res = await remiFetch<Record<string, unknown>>("/api/v1/agent/status");
   if (!res.ok) return res;
   return { ok: true, data: normalizeStatus(res.data) };
 }
@@ -133,6 +133,7 @@ export async function dialNumber(input: {
   phone: string;
   leadId?: string | null;
   customerId?: string | null;
+  agentCode?: string | null;
 }) {
   return remiFetch<unknown>("/api/v1/agent/dial", {
     method: "POST",
@@ -140,24 +141,37 @@ export async function dialNumber(input: {
       phone: input.phone,
       lead_id: input.leadId ?? null,
       customer_ref: input.customerId ?? null,
+      agent_code: input.agentCode ?? null,
     },
   });
 }
 
-export async function hangUpCall() {
-  return remiFetch<unknown>("/api/v1/agent/hangup", { method: "POST" });
+export async function hangUpCall(input?: { agentCode?: string | null }) {
+  return remiFetch<unknown>("/api/v1/agent/hangup", {
+    method: "POST",
+    body: { agent_code: input?.agentCode ?? null },
+  });
 }
 
-export async function setHold(enabled: boolean) {
-  return remiFetch<unknown>("/api/v1/agent/hold", { method: "POST", body: { enabled } });
+export async function setHold(enabled: boolean, input?: { agentCode?: string | null }) {
+  return remiFetch<unknown>("/api/v1/agent/hold", {
+    method: "POST",
+    body: { enabled, agent_code: input?.agentCode ?? null },
+  });
 }
 
-export async function setMute(enabled: boolean) {
-  return remiFetch<unknown>("/api/v1/agent/mute", { method: "POST", body: { enabled } });
+export async function setMute(enabled: boolean, input?: { agentCode?: string | null }) {
+  return remiFetch<unknown>("/api/v1/agent/mute", {
+    method: "POST",
+    body: { enabled, agent_code: input?.agentCode ?? null },
+  });
 }
 
-export async function transferCall(destination: string) {
-  return remiFetch<unknown>("/api/v1/agent/transfer", { method: "POST", body: { destination } });
+export async function transferCall(destination: string, input?: { agentCode?: string | null }) {
+  return remiFetch<unknown>("/api/v1/agent/transfer", {
+    method: "POST",
+    body: { destination, agent_code: input?.agentCode ?? null },
+  });
 }
 
 /** VICIdial dispositions used by FibreGems: SALE, CALLBACK, NI, PAYMENT_PROMISED. */
@@ -166,14 +180,18 @@ export async function postDisposition(input: {
   leadId?: string | null;
   disposition: string;
   notes?: string | null;
+  agentCode?: string | null;
+  customerId?: string | null;
 }) {
   return remiFetch<unknown>("/api/v1/agent/disposition", {
     method: "POST",
     body: {
+      customer_id: input.customerId ?? null,
       lead_id: input.leadId ?? null,
       phone: input.phone ?? null,
       disposition: input.disposition,
       notes: input.notes ?? null,
+      agent_code: input.agentCode ?? null,
     },
   });
 }

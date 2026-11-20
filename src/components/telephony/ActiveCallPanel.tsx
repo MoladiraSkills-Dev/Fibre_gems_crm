@@ -1,8 +1,6 @@
 import {
-  useEffect,
   useRef,
   useState,
-  useCallback,
   type Dispatch,
   type PointerEvent as ReactPointerEvent,
   type SetStateAction,
@@ -14,7 +12,7 @@ import type { AgentTelephonyState, Customer } from "./types";
 import { CallControls } from "./CallControls";
 import { formatCallTime } from "./telephony-service";
 import { stageForCustomer } from "./pipeline-stages";
-import { useTelephonySocket, type TelephonySocketStatus } from "./use-telephony-socket";
+import type { TelephonySocketStatus } from "./use-telephony-socket";
 
 const PANEL_WIDTH = 340;
 const EDGE_MARGIN = 12;
@@ -24,6 +22,7 @@ type ActiveCallPanelProps = {
   setTelephonyState: Dispatch<SetStateAction<AgentTelephonyState>>;
   activeCustomer: Customer | null;
   agentCode?: string | null;
+  socketStatus?: TelephonySocketStatus;
   onLogOutcome: () => void;
   onOpenCustomerDetails?: () => void;
   onCaptureReferral?: (customer: Customer) => void;
@@ -35,7 +34,8 @@ export function ActiveCallPanel({
   telephonyState,
   setTelephonyState,
   activeCustomer,
-  agentCode,
+  agentCode: _agentCode,  // kept for API compat; socket is managed by SoftphoneBar
+  socketStatus = "idle",
   onLogOutcome,
   onOpenCustomerDetails,
   onCaptureReferral,
@@ -50,73 +50,8 @@ export function ActiveCallPanel({
   const [position, setPosition] = useState<Position | null>(null);
   const [copied, setCopied] = useState(false);
 
-  type CallStateEvent = {
-    type?: string;
-    agent_status?: string;
-    call_state?: string;
-    duration_seconds?: number;
-    lead_id?: string | number | null;
-  };
-
-  const onCallState = useCallback((event: CallStateEvent) => {
-    if (event.type && event.type !== "CALL_STATE") return;
-    const callState = event.call_state?.toLowerCase();
-    const agentStatus = event.agent_status?.toLowerCase();
-    const duration = Number.isFinite(event.duration_seconds) ? Math.max(0, Math.floor(event.duration_seconds ?? 0)) : 0;
-    const leadId = event.lead_id == null ? undefined : String(event.lead_id);
-
-    if (callState === "ringing") {
-      setTelephonyState((previous) => ({
-        ...previous,
-        agentStatus: "in_call",
-        callProgress: "ringing",
-        callDurationSeconds: 0,
-        ...(leadId ? { viciLeadId: leadId } : {}),
-      }));
-      return;
-    }
-
-    if (callState === "connected") {
-      if (telephonyState.callProgress !== "connected") toast.success("Call connected. Customer answered.");
-      setTelephonyState((previous) => ({
-        ...previous,
-        agentStatus: "in_call",
-        callProgress: "connected",
-        callDurationSeconds: duration,
-        ...(leadId ? { viciLeadId: leadId } : {}),
-      }));
-      return;
-    }
-
-    if (callState === "idle" || callState === "paused") {
-      if (telephonyState.callProgress === "connected" || telephonyState.callProgress === "ringing") {
-        toast.info("Call ended. Choose an outcome to continue.");
-      }
-      setTelephonyState((previous) => ({
-        ...previous,
-        agentStatus: callState === "paused" || agentStatus === "paused" ? "paused" : "ready",
-        callProgress: null,
-        callDurationSeconds: duration || previous.callDurationSeconds,
-      }));
-    }
-  }, [setTelephonyState, telephonyState.callProgress]);
-
-  const socket = useTelephonySocket<CallStateEvent>({
-    path: "ws/telephony",
-    query: agentCode ? { agent_code: agentCode } : undefined,
-    enabled: Boolean(agentCode),
-    onMessage: onCallState,
-  });
-
-  useEffect(() => {
-    if (telephonyState.callProgress !== "connected") return;
-    const timer = setInterval(() => {
-      setTelephonyState((previous) => previous.callProgress === "connected"
-        ? { ...previous, callDurationSeconds: previous.callDurationSeconds + 1 }
-        : previous);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [telephonyState.callProgress, setTelephonyState]);
+  // Socket is managed in SoftphoneBar; we receive its status as a prop.
+  const socket = { status: socketStatus };
 
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest("button, input, select")) return;

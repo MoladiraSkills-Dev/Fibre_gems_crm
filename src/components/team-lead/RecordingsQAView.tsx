@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
 import { getRecordingsFn, type SupervisorRecording } from "@/server/supervisor-functions";
 import { DraggableCallDock } from "./DraggableCallDock";
 import { QAEvaluationDrawer } from "./QAEvaluationDrawer";
@@ -38,6 +39,9 @@ export function RecordingsQAView() {
       getRecordingsFn({
         data: { disposition: disposition || undefined, min_seconds: minSeconds || undefined },
       }),
+    refetchInterval: 20_000,          // auto-refresh every 20 seconds
+    refetchIntervalInBackground: true, // keep polling even when tab is not focused
+    staleTime: 15_000,
   });
 
   const recordings = query.data ?? [];
@@ -65,6 +69,15 @@ export function RecordingsQAView() {
             ))}
           </select>
         </label>
+        <button
+          onClick={() => void query.refetch()}
+          disabled={query.isFetching}
+          className="ml-auto flex h-10 items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-3 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50"
+          title="Refresh recordings"
+        >
+          <RefreshCw className={`size-3.5 ${query.isFetching ? "animate-spin" : ""}`} />
+          {query.isFetching ? "Refreshing…" : "Refresh"}
+        </button>
       </div>
 
       {playing && (

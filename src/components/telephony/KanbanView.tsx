@@ -197,7 +197,7 @@ export function KanbanView({
       {/* Initial Contact Outcome Modal */}
       {contactedCustomer && (
         <Dialog open onOpenChange={(open) => !open && setContactedCustomer(null)} modal={false}>
-          <DialogContent hideOverlay onInteractOutside={(e) => e.preventDefault()} className="border border-white/10 bg-[#141414] text-white sm:max-w-md pointer-events-auto shadow-2xl">
+          <DialogContent onInteractOutside={(e) => e.preventDefault()} className="border border-white/10 bg-[#141414] text-white sm:max-w-md pointer-events-auto shadow-2xl">
             <DialogHeader>
               <div className="flex items-center gap-2 text-[#22C55E]">
                 <Phone className="size-5" />
@@ -279,7 +279,7 @@ export function KanbanView({
       {/* Unreachable Verification Modal */}
       {unreachableCustomer && (
         <Dialog open onOpenChange={(open) => !open && setUnreachableCustomer(null)} modal={false}>
-          <DialogContent hideOverlay onInteractOutside={(e) => e.preventDefault()} className="border border-white/10 bg-[#141414] text-white sm:max-w-md pointer-events-auto shadow-2xl">
+          <DialogContent onInteractOutside={(e) => e.preventDefault()} className="border border-white/10 bg-[#141414] text-white sm:max-w-md pointer-events-auto shadow-2xl">
             <DialogHeader>
               <div className="flex items-center gap-2 text-[#F5B021]">
                 <PhoneMissed className="size-5" />
@@ -390,7 +390,7 @@ export function KanbanView({
       {/* Promise to Pay Date Picker Modal */}
       {paymentCustomer && (
         <Dialog open onOpenChange={(open) => !open && setPaymentCustomer(null)} modal={false}>
-          <DialogContent hideOverlay onInteractOutside={(e) => e.preventDefault()} className="border border-white/10 bg-[#141414] text-white sm:max-w-md pointer-events-auto shadow-2xl">
+          <DialogContent onInteractOutside={(e) => e.preventDefault()} className="border border-white/10 bg-[#141414] text-white sm:max-w-md pointer-events-auto shadow-2xl">
             <DialogHeader>
               <div className="flex items-center gap-2 text-[#F5B021]">
                 <CreditCard className="size-5" />

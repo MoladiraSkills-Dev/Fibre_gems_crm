@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { getLiveAgentsFn, hangupAgentFn, pauseAgentFn, startSupervisionFn, stopSupervisionFn, type LiveAgent } from "@/server/supervisor-functions";
+import {
+  getLiveAgentsFn,
+  hangupAgentFn,
+  pauseAgentFn,
+  resumeAgentFn,
+  startSupervisionFn,
+  stopSupervisionFn,
+  type LiveAgent,
+} from "@/server/supervisor-functions";
 import { AgentStatusCard, type AgentAction } from "./AgentStatusCard";
 import { getStoredTeamLeadSettings } from "./TeamLeadSettings";
 import { useTelephonySocket } from "@/components/telephony/use-telephony-socket";
@@ -17,6 +25,8 @@ function successMessage(action: AgentAction, supervisorExt: string) {
       return `Connecting barge conference on your extension ${supervisorExt}...`;
     case "pause":
       return `Agent ${action.agent.full_name} has been remotely paused.`;
+    case "resume":
+      return `Agent ${action.agent.full_name} has been resumed.`;
     case "hangup":
       return `Call for ${action.agent.full_name} has been terminated.`;
   }
@@ -34,6 +44,8 @@ async function runAction(action: AgentAction, supervisorExt: string): Promise<un
       });
     case "pause":
       return await pauseAgentFn({ data: { agent_code: action.agent.agent_code, pause_code: "SUPERVISOR" } });
+    case "resume":
+      return await resumeAgentFn({ data: { agent_code: action.agent.agent_code } });
     case "hangup":
       return await hangupAgentFn({
         data: { agent_code: action.agent.agent_code, reason: "Supervisor terminated call" },
@@ -53,66 +65,58 @@ export function LiveFloorMonitor() {
   const liveQuery = useQuery({
     queryKey: LIVE_QUERY_KEY,
     queryFn: () => getLiveAgentsFn(),
+    refetchInterval: 4_000,   // snappy 4s polling fallback
+    staleTime: 2_000,
   });
 
   type FloorData = Awaited<ReturnType<typeof getLiveAgentsFn>>;
-  type FloorAgentEvent = {
-    agent_id?: string;
+  type FloorAgentState = {
     agent_code?: string;
-    full_name?: string;
-    extension?: string;
-    conf_exten?: string;
-    status?: string;
-    sub_status?: string;
-    seconds_in_state?: number;
-    pause_code?: string | null;
-    campaign_id?: string;
-    lead_id?: string | number | null;
-    active_customer?: LiveAgent["active_customer"];
+    call_state?: string;
+    duration_seconds?: number;
+    callerid?: string;
+    pause_code?: string;
+    active_customer?: { customer_id: string; full_name: string; phone: string; suburb: string } | null;
   };
   type FloorEvent = {
     type?: string;
-    summary?: FloorData["summary"];
-    agents?: FloorAgentEvent[];
+    summary?: { in_call?: number; paused?: number };
+    agent_states?: FloorAgentState[];
   };
 
   const onFloorEvent = useCallback((event: FloorEvent) => {
     if (event.type && event.type !== "FLOOR_UPDATE") return;
+    if (!event.agent_states?.length && !event.summary) return;
+
     qc.setQueryData<FloorData>(LIVE_QUERY_KEY, (previous) => {
-      const prior = previous ?? { summary: { total_logged_in: 0, in_call: 0, ready: 0, paused: 0 }, agents: [] };
-      const agents = event.agents?.map((item, index) => {
-        const old = prior.agents.find((agent) =>
-          (item.agent_code && agent.agent_code === item.agent_code) ||
-          (item.agent_id && agent.agent_id === item.agent_id) ||
-          (item.extension && agent.extension === item.extension.replace(/^SIP\//i, "")),
-        );
-        const rawStatus = (item.status ?? old?.status ?? "DEAD").toUpperCase();
-        const status: LiveAgent["status"] = rawStatus === "INCALL" || rawStatus === "IN_CALL"
-          ? "INCALL"
-          : rawStatus === "READY"
-            ? "READY"
-            : rawStatus === "PAUSED"
-              ? "PAUSED"
-              : "DEAD";
-        const leadId = item.lead_id == null ? null : String(item.lead_id);
-        const activeCustomer = item.active_customer ?? (item.lead_id === undefined
-          ? old?.active_customer ?? null
-          : old?.active_customer?.customer_id === leadId ? old.active_customer : null);
+      if (!previous) return previous;
+      const agents = previous.agents.map((agent) => {
+        const delta = event.agent_states?.find((s) => s.agent_code?.toLowerCase() === agent.agent_code?.toLowerCase());
+        if (!delta) return agent;
+        const callState = delta.call_state ?? "idle";
+        const isIncall = callState === "connected" || callState === "ringing" || callState === "dialing";
+        const isPaused = callState === "paused";
+        const nextStatus = isIncall ? ("INCALL" as const) : isPaused ? ("PAUSED" as const) : ("READY" as const);
         return {
-          agent_id: item.agent_id ?? old?.agent_id ?? item.agent_code ?? `floor-${index}`,
-          agent_code: item.agent_code ?? old?.agent_code ?? "",
-          full_name: item.full_name ?? old?.full_name ?? item.agent_code ?? "Agent",
-          extension: item.extension?.replace(/^SIP\//i, "") ?? old?.extension ?? item.agent_code ?? "",
-          session_id: item.conf_exten ?? old?.session_id ?? "",
-          status,
-          sub_status: item.sub_status ?? old?.sub_status ?? "",
-          seconds_in_state: Math.max(0, Math.floor(item.seconds_in_state ?? old?.seconds_in_state ?? 0)),
-          pause_code: item.pause_code ?? old?.pause_code ?? null,
-          campaign_id: old?.campaign_id ?? "",
-          active_customer: activeCustomer,
-        } satisfies LiveAgent;
-      }) ?? prior.agents;
-      return { summary: event.summary ?? prior.summary, agents };
+          ...agent,
+          status: nextStatus,
+          seconds_in_state: Math.max(0, Math.floor(delta.duration_seconds ?? 0)),
+          active_customer: delta.active_customer ?? (isIncall ? agent.active_customer : null),
+          pause_code: delta.pause_code ?? (isPaused ? agent.pause_code : null),
+        };
+      });
+      const inCallCount = agents.filter((a) => a.status === "INCALL").length;
+      const pausedCount = agents.filter((a) => a.status === "PAUSED").length;
+      const readyCount = Math.max(0, agents.length - inCallCount - pausedCount);
+      return {
+        summary: {
+          total_logged_in: agents.length,
+          in_call: inCallCount,
+          ready: readyCount,
+          paused: pausedCount,
+        },
+        agents,
+      };
     });
   }, [qc]);
 
@@ -176,9 +180,20 @@ export function LiveFloorMonitor() {
 
   const { summary, agents } = liveQuery.data;
 
+  // Highlight priority: IN CALL first, then READY, then PAUSED, with Team Leader clearly designated
+  const sortedAgents = [...agents].sort((a, b) => {
+    const priority = (ag: LiveAgent) => {
+      if (ag.status === "INCALL") return 0;
+      if (ag.status === "READY") return 1;
+      if (ag.status === "PAUSED") return 2;
+      return 3;
+    };
+    return priority(a) - priority(b);
+  });
+
   const tiles = [
     { label: "Logged in", value: summary.total_logged_in, className: "text-foreground" },
-    { label: "In call", value: summary.in_call, className: "text-emerald-400" },
+    { label: "In call", value: summary.in_call, className: "text-emerald-400 font-bold" },
     { label: "Ready", value: summary.ready, className: "text-cyan-300" },
     { label: "On pause", value: summary.paused, className: "text-amber-300" },
   ];
@@ -198,13 +213,13 @@ export function LiveFloorMonitor() {
         ))}
       </div>
 
-      {agents.length === 0 ? (
+      {sortedAgents.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           No agents are logged in right now.
         </p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {agents.map((agent, idx) => (
+          {sortedAgents.map((agent, idx) => (
             <AgentStatusCard
               key={agent.agent_id || agent.agent_code || `agent-${idx}`}
               agent={agent}

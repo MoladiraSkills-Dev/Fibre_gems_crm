@@ -11,6 +11,9 @@ import {
   LogOut,
   Menu,
   X,
+  Users,
+  Briefcase,
+  FileSpreadsheet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getCurrentUserFn, logoutFn } from "@/server/functions";
@@ -19,11 +22,26 @@ import { RecordingsQAView } from "./RecordingsQAView";
 import { CallbackPoolView } from "./CallbackPoolView";
 import { AgentLeaderboardView } from "./AgentLeaderboardView";
 import { TeamLeadSettingsView } from "./TeamLeadSettings";
+import { SupervisorCustomersView } from "./SupervisorCustomersView";
+import { AgentPortfolioView } from "./AgentPortfolioView";
+import { FloorLogsView } from "./FloorLogsView";
+import { DraggableCallDock, type DockSession } from "./DraggableCallDock";
 
-type TeamLeadView = "floor" | "recordings" | "callbacks" | "stats" | "settings";
+type TeamLeadView =
+  | "floor"
+  | "customers"
+  | "portfolios"
+  | "logs"
+  | "recordings"
+  | "callbacks"
+  | "stats"
+  | "settings";
 
 const NAV_ITEMS = [
   { id: "floor" as TeamLeadView, label: "Live Floor Monitor", icon: Radio },
+  { id: "customers" as TeamLeadView, label: "Customer 360 & Directory", icon: Users },
+  { id: "portfolios" as TeamLeadView, label: "Agent Portfolios", icon: Briefcase },
+  { id: "logs" as TeamLeadView, label: "Call & Activity Logs", icon: FileSpreadsheet },
   { id: "recordings" as TeamLeadView, label: "Recordings & QA", icon: Mic },
   { id: "callbacks" as TeamLeadView, label: "Callback Pool", icon: CalendarDays },
   { id: "stats" as TeamLeadView, label: "Shift Performance", icon: Trophy },
@@ -36,6 +54,31 @@ export function TeamLeadWorkspace() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [userName, setUserName] = useState("Team Leader");
   const [userRole, setUserRole] = useState("team_leader");
+  const [dockSession, setDockSession] = useState<DockSession | null>(null);
+  const [portfolioAgentId, setPortfolioAgentId] = useState<string | undefined>(undefined);
+  const [targetCustomerId, setTargetCustomerId] = useState<string | null>(null);
+
+  const handlePlayRecording = (rec: {
+    id: string;
+    customer_name: string;
+    agent_name: string;
+    disposition: string;
+  }) => {
+    setDockSession({
+      kind: "recording",
+      recording: {
+        id: rec.id,
+        agent_name: rec.agent_name,
+        customer_name: rec.customer_name,
+        customer_phone: "",
+        disposition: rec.disposition,
+        duration_seconds: 0,
+        recorded_at: new Date().toISOString(),
+        recording_url: "",
+        qa_evaluation: null,
+      },
+    });
+  };
 
   useEffect(() => {
     async function loadUser() {
@@ -177,11 +220,51 @@ export function TeamLeadWorkspace() {
 
         <div className="p-4 md:p-8">
           {view === "floor" && <LiveFloorMonitor />}
+          {view === "customers" && (
+            <SupervisorCustomersView
+              initialCustomerId={targetCustomerId}
+              onPlayRecording={handlePlayRecording}
+            />
+          )}
+          {view === "portfolios" && (
+            <AgentPortfolioView
+              initialAgentId={portfolioAgentId}
+              onPlayRecording={handlePlayRecording}
+              onSelectCustomer={(customerId) => {
+                setTargetCustomerId(customerId);
+                setView("customers");
+              }}
+            />
+          )}
+          {view === "logs" && <FloorLogsView onPlayRecording={handlePlayRecording} />}
           {view === "recordings" && <RecordingsQAView />}
-          {view === "callbacks" && <CallbackPoolView />}
-          {view === "stats" && <AgentLeaderboardView />}
+          {view === "callbacks" && (
+            <CallbackPoolView
+              onPlayRecording={handlePlayRecording}
+              onViewCustomer={(customerId) => {
+                setTargetCustomerId(customerId);
+                setView("customers");
+              }}
+            />
+          )}
+          {view === "stats" && (
+            <AgentLeaderboardView
+              onViewPortfolio={(agentId) => {
+                setPortfolioAgentId(agentId);
+                setView("portfolios");
+              }}
+            />
+          )}
           {view === "settings" && <TeamLeadSettingsView />}
         </div>
+
+        {dockSession && (
+          <DraggableCallDock
+            session={dockSession}
+            onClose={() => setDockSession(null)}
+            onModeChange={async () => {}}
+          />
+        )}
       </main>
     </div>
   );
