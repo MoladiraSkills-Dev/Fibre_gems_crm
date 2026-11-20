@@ -1,30 +1,6 @@
 ﻿import { useMemo, useState, useEffect, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import {
-  Activity,
-  AlertTriangle,
-  ArrowRight,
-  CalendarDays,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  ClipboardList,
-  Clock3,
-  Copy,
-  LayoutDashboard,
-  LayoutGrid,
-  LogOut,
-  Menu,
-  Phone,
-  Plus,
-  RefreshCw,
-  Search,
-  Shield,
-  Radio,
-  Users,
-  X,
-} from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";import { Activity, TriangleAlert as AlertTriangle, ArrowRight, CalendarDays, Check, ChevronLeft, ChevronRight, ClipboardList, Clock3, Copy, LayoutDashboard, LayoutGrid, LogOut, Menu, Phone, Plus, RefreshCw, Search, Shield, Radio, Users, X } from "lucide-react"";
 import { toast } from "sonner";
 import {
   getCurrentUserFn,
@@ -59,6 +35,7 @@ import { ViciDialSimulator } from "./telephony/ViciDialSimulator";
 import { SoftphoneBar } from "./telephony/SoftphoneBar";
 import { dialCustomerApi, hangupCallApi, updateStageApi, type DialResult } from "./telephony/telephony-service";
 import type { AgentTelephonyState, Customer } from "./telephony/types";
+import { AgentProvisioningView } from "./admin/AgentProvisioningView";
 
 type ActivityRow = {
   id: string;
@@ -508,7 +485,7 @@ export function CrmWorkspace({ mode }: { mode: WorkspaceMode }) {
         { id: "callbacks", label: "Call Back Reports", icon: Phone },
         { id: "grid", label: "Master Grid", icon: ClipboardList },
         { id: "sync", label: "Agility Sync", icon: RefreshCw },
-        { id: "agents", label: "Manage Agents", icon: Users },
+        { id: "agents", label: "Agent Provisioning", icon: Users },
       ];
 
   const heading =
@@ -519,7 +496,7 @@ export function CrmWorkspace({ mode }: { mode: WorkspaceMode }) {
           callbacks: "Call Back Accountability",
           grid: "Master Lead & Order Grid",
           sync: "Agility Sync",
-          agents: "Manage Agents",
+          agents: "Agent & SIP Provisioning",
         } as Record<string, string>
       )[view]
       : view === "kanban"
@@ -769,7 +746,7 @@ export function CrmWorkspace({ mode }: { mode: WorkspaceMode }) {
             <Worklist customers={customers} onSelect={setSelected} admin />
           )}
           {mode === "admin" && view === "sync" && <AgilitySync />}
-          {mode === "admin" && view === "agents" && <Agents profiles={profiles} />}
+          {mode === "admin" && view === "agents" && <AgentProvisioningView />}
         </div>
       </main>
       <OutcomeDialog
@@ -1582,39 +1559,6 @@ function Accountability({
         </div>
       ))}
       {!missed.length && <Empty title="No missed call backs for this date" />}
-    </section>
-  );
-}
-
-function Agents({ profiles }: { profiles: Profile[] }) {
-  return (
-    <section>
-      <h2 className="mb-4 text-xl font-bold">Manage Agents</h2>
-      <div className="overflow-x-auto border border-border bg-card">
-        <table className="w-full min-w-[500px] text-left text-sm">
-          <thead>
-            <tr>
-              {["Agent", "Email", "Status"].map((x) => (
-                <th key={x} className="p-4">
-                  {x}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {profiles.map((p) => (
-              <tr key={p.id} className="border-t border-border">
-                <td className="p-4 font-semibold">{p.full_name}</td>
-                <td className="p-4">{p.email}</td>
-                <td className="p-4">
-                  <Badge text={p.status} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!profiles.length && <Empty title="No agents found" />}
-      </div>
     </section>
   );
 }
