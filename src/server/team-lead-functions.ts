@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, isNotNull, or } from "drizzle-orm";
 import { getCurrentUser, type AuthUser } from "./auth";
 import { getDb, isMockMode, mockStore } from "./db";
 import { customers, profiles } from "./db/schema";
@@ -43,7 +43,12 @@ export const getTeamCallbacksFn = createServerFn({ method: "GET" }).handler(asyn
   }
 
   const db = getDb();
-  const callbacks = await db
+  const toDateOnly = (v: unknown): string | null => {
+    if (!v) return null;
+    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    return String(v).slice(0, 10);
+  };
+  const rawCallbacks = await db
     .select({
       id: customers.id,
       full_name: customers.fullName,
@@ -56,9 +61,22 @@ export const getTeamCallbacksFn = createServerFn({ method: "GET" }).handler(asyn
       next_action_date: customers.nextActionDate,
     })
     .from(customers)
-    .where(and(eq(customers.recordStatus, "active"), isNotNull(customers.nextActionDate)))
+    .where(
+      and(
+        eq(customers.recordStatus, "active"),
+        isNotNull(customers.nextActionDate),
+        or(
+          eq(customers.status, "callback"),
+          ilike(customers.nextAction, "%callback%"),
+        ),
+      ),
+    )
     .orderBy(asc(customers.nextActionDate))
     .limit(1000);
+  const callbacks = rawCallbacks.map((c) => ({
+    ...c,
+    next_action_date: toDateOnly(c.next_action_date),
+  }));
 
   const agents = await db
     .select({ id: profiles.id, full_name: profiles.fullName, agent_code: profiles.agentCode })

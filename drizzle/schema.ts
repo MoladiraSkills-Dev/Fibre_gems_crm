@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, date, integer, boolean, jsonb, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, date, integer, boolean, jsonb, pgEnum, doublePrecision, bigint } from "drizzle-orm/pg-core";
 
 export const appRoleEnum = pgEnum("app_role", ["admin", "team_leader", "agent"]);
 export const customerStatusEnum = pgEnum("customer_status", [
@@ -170,6 +170,136 @@ export const agilityImportRows = pgTable("agility_import_rows", {
   validationStatus: text("validation_status").notNull().default("pending"),
   validationErrors: jsonb("validation_errors").notNull().default([]),
   customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+});
+
+export const agilityOrders = pgTable("agility_orders", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orderRef: text("order_ref").notNull().unique(),
+  description: text("description"),
+  status: text("status").notNull(),
+  customStatus: text("custom_status"),
+  premiseId: bigint("premise_id", { mode: "number" }),
+  customerName: text("customer_name"),
+  supplier: text("supplier"),
+  product: text("product"),
+  channelPartner: text("channel_partner"),
+  agentNameRaw: text("agent_name_raw"),
+  agentNameKey: text("agent_name_key"),
+  orderCreatedDate: timestamp("order_created_date", { withTimezone: true }),
+  paymentReceivedDate: timestamp("payment_received_date", { withTimezone: true }),
+  completedDate: timestamp("completed_date", { withTimezone: true }),
+  importBatchId: uuid("import_batch_id").references(() => agilityImportBatches.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const agilityLeads = pgTable("agility_leads", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  leadEntityId: bigint("lead_entity_id", { mode: "number" }).notNull().unique(),
+  leadNumber: text("lead_number").notNull().unique(),
+  leadDescription: text("lead_description"),
+  orderRef: text("order_ref"),
+  accountNumber: text("account_number"),
+  accountName: text("account_name"),
+  contactName: text("contact_name"),
+  contactEmail: text("contact_email"),
+  contactNumberRaw: text("contact_number_raw"),
+  contactNumber: text("contact_number"),
+  altNumberRaw: text("alt_number_raw"),
+  idNumber: text("id_number"),
+  address: text("address"),
+  region: text("region"),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
+  status: text("status").notNull(),
+  customStatus: text("custom_status"),
+  source: text("source"),
+  productName: text("product_name"),
+  productCode: text("product_code"),
+  supplier: text("supplier"),
+  recurringExcl: doublePrecision("recurring_excl"),
+  recurringIncl: doublePrecision("recurring_incl"),
+  debitOrderDay: integer("debit_order_day"),
+  kycStatus: text("kyc_status"),
+  kycRequired: boolean("kyc_required"),
+  channelPartnerCode: text("channel_partner_code"),
+  agentNameRaw: text("agent_name_raw"),
+  agentNameKey: text("agent_name_key"),
+  salesAgent: text("sales_agent"),
+  premiseId: bigint("premise_id", { mode: "number" }),
+  auditCreatedDate: timestamp("audit_created_date", { withTimezone: true }),
+  originalOrderDate: timestamp("original_order_date", { withTimezone: true }),
+  submittedDate: timestamp("submitted_date", { withTimezone: true }),
+  assignedDate: timestamp("assigned_date", { withTimezone: true }),
+  auditUpdatedDate: timestamp("audit_updated_date", { withTimezone: true }),
+  expiredDate: timestamp("expired_date", { withTimezone: true }),
+  nextPaymentDate: timestamp("next_payment_date", { withTimezone: true }),
+  vicidialLeadId: text("vicidial_lead_id"),
+  pushedAt: timestamp("pushed_at", { withTimezone: true }),
+  importBatchId: uuid("import_batch_id").references(() => agilityImportBatches.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const agilityAgentMap = pgTable("agility_agent_map", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  agentNameKey: text("agent_name_key").notNull().unique(),
+  agentNameRaw: text("agent_name_raw").notNull(),
+  profileId: uuid("profile_id").references(() => profiles.id, { onDelete: "set null" }),
+  displayName: text("display_name"),
+  matchType: text("match_type").notNull().default("unmatched"),
+  agentStatus: text("agent_status").notNull().default("active"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const campaigns = pgTable("campaigns", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  campaignCode: text("campaign_code").notNull().unique(),
+  name: text("name").notNull(),
+  campaignCid: text("campaign_cid").notNull(),
+  description: text("description").notNull().default(""),
+  active: boolean("active").notNull().default(true),
+  dialMethod: text("dial_method").notNull().default("RATIO"),
+  autoDialLevel: doublePrecision("auto_dial_level").notNull().default(1.5),
+  ringingTimeout: integer("ringing_timeout").notNull().default(25),
+  hopperLevel: integer("hopper_level").notNull().default(200),
+  forceRecording: boolean("force_recording").notNull().default(true),
+  amdEnabled: boolean("amd_enabled").notNull().default(true),
+  autoAlternateCell: boolean("auto_alternate_cell").notNull().default(true),
+  blendedInbound: boolean("blended_inbound").notNull().default(false),
+  retryRules: jsonb("retry_rules").notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const leadLists = pgTable("lead_lists", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  listCode: text("list_code").notNull().unique(),
+  name: text("name").notNull(),
+  campaignId: uuid("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  vicidialListId: text("vicidial_list_id"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const leadListLeads = pgTable("lead_list_leads", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  listId: uuid("list_id").notNull().references(() => leadLists.id, { onDelete: "cascade" }),
+  firstName: text("first_name").notNull().default(""),
+  surname: text("surname").notNull().default(""),
+  cellNumber: text("cell_number").notNull(),
+  normalizedCell: text("normalized_cell").notNull(),
+  alternateCell: text("alternate_cell"),
+  email: text("email"),
+  address: text("address"),
+  suburb: text("suburb"),
+  productPackage: text("product_package"),
+  easypayNumber: text("easypay_number"),
+  vicidialLeadId: text("vicidial_lead_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const callEvents = pgTable("call_events", {

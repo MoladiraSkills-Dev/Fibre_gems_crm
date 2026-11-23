@@ -4,7 +4,7 @@ import { getDb, isMockMode, mockStore, type MockCustomer, type MockActivity, typ
 import { customers, orders, payments, activations, activities, profiles, userRoles, agilityImportBatches, agilityImportRows, callEvents } from "./db/schema";
 import { PRODUCT_PACKAGES } from "../components/telephony/types";
 import { fetchAgentStatus, dialNumber, hangUpCall, setHold, setMute, transferCall, postDisposition, remiApiUrl } from "./vicidial.server";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, or } from "drizzle-orm";
 import crypto from "node:crypto";
 
 function normalizeCell(value: string): string {
@@ -24,27 +24,56 @@ export const getCurrentUserFn = createServerFn({ method: "GET" }).handler(async 
 export const loginFn = createServerFn({ method: "POST" })
   .validator((data: { email: string; password: string }) => data)
   .handler(async ({ data }) => {
-    const email = data.email.trim().toLowerCase();
+    const rawIdentifier = data.email.trim();
+    const identifier = rawIdentifier.toLowerCase();
+    const normalizedId = identifier.replace(/[-_]/g, "");
+
+    function resolveRoleFromIdentifier(idStr: string): "admin" | "team_leader" | "agent" {
+      const clean = idStr.toLowerCase().replace(/[-_]/g, "");
+      if (clean.startsWith("tml") || clean.includes("teamlead")) return "team_leader";
+      if (clean.startsWith("adm") || clean.includes("admin")) return "admin";
+      return "agent";
+    }
+
+    function generateCodeForRole(role: "admin" | "team_leader" | "agent", candidate: string): string {
+      const clean = candidate.toLowerCase().replace(/[-_]/g, "");
+      if (clean.startsWith("agt") || clean.startsWith("tml") || clean.startsWith("adm")) {
+        return candidate.toLowerCase();
+      }
+      const prefix = role === "team_leader" ? "tml" : role === "admin" ? "adm" : "agt";
+      return `${prefix}${Math.floor(100 + Math.random() * 900)}`;
+    }
 
     if (isMockMode()) {
-      let foundUser = Array.from(mockStore.profiles.values()).find(
-        (p) => p.email.toLowerCase() === email
-      );
+      let foundUser = Array.from(mockStore.profiles.values()).find((p) => {
+        const pEmail = p.email.toLowerCase();
+        const pCode = (p.agentCode ?? "").toLowerCase();
+        const pNorm = pCode.replace(/[-_]/g, "");
+        return (
+          pEmail === identifier ||
+          pCode === identifier ||
+          (pNorm && pNorm === normalizedId)
+        );
+      });
 
-      // If user is logging in with admin/agent test account or new account
+      // If user is logging in with admin/agent/team lead test account or auto-created account
       if (foundUser) {
         if (!verifyPassword(data.password, foundUser.passwordHash)) {
           throw new Error("Invalid password");
         }
       } else {
-        // Fallback for easy development login if password is password123
+        // Fallback for development login if password is password123
         if (data.password === "password123") {
           const newId = crypto.randomUUID();
+          const determinedRole = resolveRoleFromIdentifier(identifier);
+          const generatedAgentCode = generateCodeForRole(determinedRole, identifier);
           foundUser = {
             id: newId,
-            agentCode: `AGT-${Math.floor(100 + Math.random() * 900)}`,
-            fullName: email.split("@")[0].toUpperCase(),
-            email,
+            agentCode: generatedAgentCode,
+            fullName: identifier.includes("@")
+              ? identifier.split("@")[0].toUpperCase()
+              : `${determinedRole.toUpperCase()} ${generatedAgentCode.toUpperCase()}`,
+            email: identifier.includes("@") ? identifier : `${generatedAgentCode}@fibregems.co.za`,
             passwordHash: hashPassword(data.password),
             status: "active",
             teamId: null,
@@ -52,9 +81,9 @@ export const loginFn = createServerFn({ method: "POST" })
             updatedAt: new Date(),
           };
           mockStore.profiles.set(newId, foundUser);
-          mockStore.userRoles.set(newId, email.includes("admin") ? "admin" : "agent");
+          mockStore.userRoles.set(newId, determinedRole);
         } else {
-          throw new Error("User not found with these credentials");
+          throw new Error("User not found with these credentials (use agt..., tml..., adm... or email)");
         }
       }
 
@@ -73,38 +102,79 @@ export const loginFn = createServerFn({ method: "POST" })
       };
     }
 
-    // PostgreSQL database query via Drizzle
-    const db = getDb();
-    const [profile] = await db.select().from(profiles).where(eq(profiles.email, email)).limit(1);
+    // PostgreSQL database query via Drizzle with graceful fallback to mockStore
+    try {
+      const db = getDb();
+      const [profile] = await db
+        .select()
+        .from(profiles)
+        .where(or(eq(profiles.email, identifier), eq(profiles.agentCode, rawIdentifier)))
+        .limit(1);
 
-    if (!profile || !profile.passwordHash) {
-      throw new Error("Invalid email or password");
+      if (!profile || !profile.passwordHash) {
+        throw new Error("Invalid email/agent code or password");
+      }
+
+      const isValid = verifyPassword(data.password, profile.passwordHash);
+      if (!isValid) {
+        throw new Error("Invalid email/agent code or password");
+      }
+
+      if (profile.status !== "active") {
+        throw new Error("Account is currently inactive");
+      }
+
+      await createSession(profile.id);
+
+      const [roleRow] = await db
+        .select()
+        .from(userRoles)
+        .where(eq(userRoles.userId, profile.id))
+        .limit(1);
+
+      return {
+        success: true,
+        user: {
+          id: profile.id,
+          email: profile.email,
+          fullName: profile.fullName,
+          agentCode: profile.agentCode,
+          role: (roleRow?.role ?? "agent") as AuthUser["role"],
+          status: profile.status,
+        },
+      };
+    } catch (dbErr: any) {
+      if (dbErr?.message && dbErr.message.includes("Invalid")) throw dbErr;
+      console.warn("DB login query failed, checking mock store:", dbErr?.message);
+      // Fallback to mock store
+      const foundUser = Array.from(mockStore.profiles.values()).find((p) => {
+        const pEmail = p.email.toLowerCase();
+        const pCode = (p.agentCode ?? "").toLowerCase();
+        const pNorm = pCode.replace(/[-_]/g, "");
+        return (
+          pEmail === identifier ||
+          pCode === identifier ||
+          (pNorm && pNorm === normalizedId)
+        );
+      });
+
+      if (foundUser && verifyPassword(data.password, foundUser.passwordHash)) {
+        await createSession(foundUser.id);
+        const role = mockStore.userRoles.get(foundUser.id) ?? "agent";
+        return {
+          success: true,
+          user: {
+            id: foundUser.id,
+            email: foundUser.email,
+            fullName: foundUser.fullName,
+            agentCode: foundUser.agentCode,
+            role: role as AuthUser["role"],
+            status: foundUser.status,
+          },
+        };
+      }
+      throw dbErr;
     }
-
-    const isValid = verifyPassword(data.password, profile.passwordHash);
-    if (!isValid) {
-      throw new Error("Invalid email or password");
-    }
-
-    if (profile.status !== "active") {
-      throw new Error("Account is currently inactive");
-    }
-
-    await createSession(profile.id);
-
-    const [roleRow] = await db.select().from(userRoles).where(eq(userRoles.userId, profile.id)).limit(1);
-
-    return {
-      success: true,
-      user: {
-        id: profile.id,
-        email: profile.email,
-        fullName: profile.fullName,
-        agentCode: profile.agentCode,
-        role: (roleRow?.role ?? "agent") as AuthUser["role"],
-        status: profile.status,
-      },
-    };
   });
 
 export const registerFn = createServerFn({ method: "POST" })
@@ -117,7 +187,7 @@ export const registerFn = createServerFn({ method: "POST" })
     }
 
     const hashedPassword = hashPassword(data.password);
-    const agentCode = `AGT-${Math.floor(100 + Math.random() * 900)}`;
+    const agentCode = `agt${Math.floor(100 + Math.random() * 900)}`;
 
     if (isMockMode()) {
       const existing = Array.from(mockStore.profiles.values()).find(
@@ -355,6 +425,11 @@ export const getWorkspaceDataFn = createServerFn({ method: "GET" })
       .from(orders);
 
     const orderMap = new Map(ordRows.map((o) => [o.customer_id, o]));
+    const toDateOnly = (v: unknown): string | null => {
+      if (!v) return null;
+      if (v instanceof Date) return v.toISOString().slice(0, 10);
+      return String(v).slice(0, 10);
+    };
     const mappedCustomers = custRows.map((c) => {
       const ord = orderMap.get(c.id);
       const generatedRef = `REF-${(c.surname || "GEM").slice(0, 3).toUpperCase()}${c.id.slice(-4).toUpperCase()}`;
@@ -365,6 +440,10 @@ export const getWorkspaceDataFn = createServerFn({ method: "GET" })
         ovk_number: ord?.ovk_number || (c as any).ovk_number || null,
         order_number: ord?.ovr_number || ord?.ovk_number || null,
         full_name: c.full_name || `${c.first_name} ${c.surname}`.trim(),
+        next_action_date: toDateOnly(c.next_action_date),
+        last_contact_date: toDateOnly(c.last_contact_date),
+        easypay_expiry: toDateOnly(c.easypay_expiry),
+        easypay_expiry_date: toDateOnly(c.easypay_expiry_date),
         created_at: c.created_at ? new Date(c.created_at).toISOString() : new Date().toISOString(),
       };
     });

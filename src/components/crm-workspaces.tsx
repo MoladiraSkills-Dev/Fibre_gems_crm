@@ -1,7 +1,7 @@
 ﻿import { useMemo, useState, useEffect, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Activity, TriangleAlert as AlertTriangle, ArrowRight, CalendarDays, Check, ChevronLeft, ChevronRight, ClipboardList, Clock3, Copy, Database, LayoutDashboard, LayoutGrid, LogOut, Menu, Phone, Plus, RefreshCw, Search, Shield, Radio, Users, X } from "lucide-react";
+import { Activity, TriangleAlert as AlertTriangle, ArrowRight, CalendarDays, Check, ChevronLeft, ChevronRight, ClipboardList, Clock3, Copy, Database, Headphones, LayoutDashboard, LayoutGrid, LogOut, Menu, Phone, Plus, RefreshCw, Search, Server, Shield, Radio, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   getCurrentUserFn,
@@ -17,6 +17,13 @@ import { OUTCOMES, outcomeFor, statusForOutcome, stageForCustomer, stageForOutco
 import { PRODUCT_PACKAGES } from "./telephony/types";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -39,6 +46,12 @@ import type { AgentTelephonyState, Customer } from "./telephony/types";
 import { AgentProvisioningView } from "./admin/AgentProvisioningView";
 import { CampaignManager } from "./admin/CampaignManager";
 import { LeadListManager } from "./admin/LeadListManager";
+import { TeamManager } from "./admin/TeamManager";
+import { VicidialAdmin } from "./admin/VicidialAdmin";
+import { AgilityOrders } from "./admin/AgilityOrders";
+import { AgilityLeads } from "./admin/AgilityLeads";
+import { ExecutiveDashboard } from "./admin/ExecutiveDashboard";
+import { LiveFloorMonitor } from "./team-lead/LiveFloorMonitor";
 
 type ActivityRow = {
   id: string;
@@ -485,12 +498,15 @@ export function CrmWorkspace({ mode }: { mode: WorkspaceMode }) {
       ]
       : [
         { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+        { id: "floor", label: "Live Floor", icon: Headphones },
         { id: "callbacks", label: "Call Back Reports", icon: Phone },
         { id: "grid", label: "Master Grid", icon: ClipboardList },
         { id: "sync", label: "Agility Sync", icon: RefreshCw },
         { id: "agents", label: "Agent Provisioning", icon: Users },
+        { id: "teams", label: "Teams", icon: Users },
         { id: "campaigns", label: "Campaigns", icon: Radio },
         { id: "leadlists", label: "Lead Lists", icon: Database },
+        { id: "vicidial", label: "VICIdial", icon: Server },
       ];
 
   const heading =
@@ -498,12 +514,15 @@ export function CrmWorkspace({ mode }: { mode: WorkspaceMode }) {
       ? (
         {
           dashboard: "Command Centre",
+          floor: "Live Floor Operations",
           callbacks: "Call Back Accountability",
           grid: "Master Lead & Order Grid",
           sync: "Agility Sync",
           agents: "Agent & SIP Provisioning",
+          teams: "Team Management",
           campaigns: "Campaign & Queue Control",
           leadlists: "Lead List Management",
+          vicidial: "VICIdial Administration",
         } as Record<string, string>
       )[view]
       : view === "kanban"
@@ -733,14 +752,9 @@ export function CrmWorkspace({ mode }: { mode: WorkspaceMode }) {
             />
           )}
           {mode === "admin" && view === "dashboard" && (
-            <AdminDashboard
-              customers={customers}
-              activities={activities}
-              profiles={profiles}
-              today={today}
-              onReports={() => setView("callbacks")}
-            />
+            <ExecutiveDashboard onNavigateTab={(tab) => setView(tab)} />
           )}
+          {mode === "admin" && view === "floor" && <LiveFloorMonitor />}
           {mode === "admin" && view === "callbacks" && (
             <Accountability
               customers={customers}
@@ -750,12 +764,20 @@ export function CrmWorkspace({ mode }: { mode: WorkspaceMode }) {
             />
           )}
           {mode === "admin" && view === "grid" && (
-            <Worklist customers={customers} onSelect={setSelected} admin />
+            <Worklist customers={customers} onSelect={setSelected} admin profiles={profiles} />
           )}
-          {mode === "admin" && view === "sync" && <AgilitySync />}
+          {mode === "admin" && view === "sync" && (
+            <div className="space-y-10">
+              <AgilitySync />
+              <AgilityOrders />
+              <AgilityLeads />
+            </div>
+          )}
           {mode === "admin" && view === "agents" && <AgentProvisioningView />}
+          {mode === "admin" && view === "teams" && <TeamManager />}
           {mode === "admin" && view === "campaigns" && <CampaignManager />}
           {mode === "admin" && view === "leadlists" && <LeadListManager />}
+          {mode === "admin" && view === "vicidial" && <VicidialAdmin />}
         </div>
       </main>
       <OutcomeDialog
@@ -912,21 +934,52 @@ function Worklist({
   customers,
   onSelect,
   admin = false,
+  profiles = [],
 }: {
   customers: Customer[];
   onSelect: (c: Customer) => void;
   admin?: boolean;
+  profiles?: Profile[];
 }) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
-  const rows = customers.filter((c) =>
-    `${c.full_name} ${c.cell_number} ${c.area_suburb ?? ""}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
+  const [statusFilter, setStatusFilter] = useState("");
+  const [agentFilter, setAgentFilter] = useState("");
+  const [productFilter, setProductFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  const profileName = useMemo(() => {
+    const m = new Map(profiles.map((p) => [p.id, p.full_name]));
+    return (id?: string | null) => (id ? m.get(id) ?? "—" : "—");
+  }, [profiles]);
+
+  const products = useMemo(
+    () => [...new Set(customers.map((c) => c.product_package).filter(Boolean))].sort() as string[],
+    [customers],
   );
+
+  const rows = customers.filter((c) => {
+    if (query && !`${c.full_name} ${c.cell_number} ${c.area_suburb ?? ""}`
+      .toLowerCase()
+      .includes(query.toLowerCase())) return false;
+    if (statusFilter && c.status !== statusFilter) return false;
+    if (agentFilter && (c.owner_id ?? c.original_agent_id) !== agentFilter) return false;
+    if (productFilter && c.product_package !== productFilter) return false;
+    const created = (c.created_at ?? "").slice(0, 10);
+    if (dateFrom && created < dateFrom) return false;
+    if (dateTo && created > dateTo) return false;
+    return true;
+  });
   const size = admin ? 50 : 20;
   const pages = Math.max(1, Math.ceil(rows.length / size));
   const current = Math.min(page, pages - 1);
+  const hasFilters = !!(statusFilter || agentFilter || productFilter || dateFrom || dateTo);
+
+  function resetPage() {
+    setPage(0);
+  }
+
   return (
     <section>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
@@ -934,30 +987,70 @@ function Worklist({
           <h2 className="text-xl font-bold">{admin ? "All customers" : "All Assigned Leads"}</h2>
           <p className="text-sm text-muted-foreground">{rows.length} active records</p>
         </div>
-        <div className="relative w-full max-w-xs">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            aria-label="Search customers"
-            placeholder="Search name, phone or area"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setPage(0);
-            }}
-            className="pl-9"
-          />
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="relative w-full max-w-xs">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              aria-label="Search customers"
+              placeholder="Search name, phone or area"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                resetPage();
+              }}
+              className="pl-9"
+            />
+          </div>
+          <Select value={statusFilter || "all"} onValueChange={(v) => { setStatusFilter(v === "all" ? "" : v); resetPage(); }}>
+            <SelectTrigger className="h-9 w-40"><SelectValue placeholder="Status" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              {Object.entries(statusNames).map(([k, label]) => (
+                <SelectItem key={k} value={k}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {admin && profiles.length > 0 && (
+            <Select value={agentFilter || "all"} onValueChange={(v) => { setAgentFilter(v === "all" ? "" : v); resetPage(); }}>
+              <SelectTrigger className="h-9 w-44"><SelectValue placeholder="Agent" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All agents</SelectItem>
+                {profiles.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {products.length > 1 && (
+            <Select value={productFilter || "all"} onValueChange={(v) => { setProductFilter(v === "all" ? "" : v); resetPage(); }}>
+              <SelectTrigger className="h-9 w-44"><SelectValue placeholder="Package" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All packages</SelectItem>
+                {products.map((p) => (
+                  <SelectItem key={p} value={p}>{p}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); resetPage(); }} className="h-9 w-36" aria-label="Created from" />
+          <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); resetPage(); }} className="h-9 w-36" aria-label="Created to" />
+          {hasFilters && (
+            <Button variant="ghost" size="sm" onClick={() => { setStatusFilter(""); setAgentFilter(""); setProductFilter(""); setDateFrom(""); setDateTo(""); resetPage(); }}>
+              Clear
+            </Button>
+          )}
         </div>
       </div>
       <div className="overflow-x-auto border border-border bg-card">
         <table className="w-full min-w-[760px] text-left text-sm">
           <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
             <tr>
-              {["Customer", "Phone", "Package", "Status", "Scheduled callback", "Action"].map(
-                (h) => (
+              {["Customer", "Phone", "Agent", "Package", "Status", "Scheduled callback", "Action"].map(
+                (h) => (h === "Agent" && !admin ? null : (
                   <th key={h} className="px-4 py-3">
                     {h}
                   </th>
-                ),
+                )),
               )}
             </tr>
           </thead>
@@ -969,6 +1062,7 @@ function Worklist({
                   <span className="block font-normal text-muted-foreground">{c.area_suburb}</span>
                 </td>
                 <td className="px-4 py-4">{c.cell_number}</td>
+                {admin && <td className="px-4 py-4 text-muted-foreground">{profileName(c.owner_id)}</td>}
                 <td className="px-4 py-4">{c.product_package ?? "—"}</td>
                 <td className="px-4 py-4">
                   <Badge text={statusNames[c.status] ?? c.status} status={c.status} />
@@ -1482,13 +1576,24 @@ function Accountability({
   onSelect: (c: Customer) => void;
 }) {
   const [day, setDay] = useState(jhbDate());
-  const scheduled = customers.filter((c) => c.next_action_date === day);
-  const done = (c: Customer) =>
+  const isCallback = (c: Customer) =>
+    c.status === "callback" || (c.next_action ?? "").toLowerCase().includes("callback");
+  // Outstanding callbacks: due on the selected day or overdue and not yet completed
+  const scheduled = customers.filter(
+    (c) => isCallback(c) && c.next_action_date != null && c.next_action_date <= day,
+  );
+  const actedOn = (c: Customer, actorId?: string) =>
     activities.some(
       (a) =>
-        a.customer_id === c.id && a.actor_id === c.owner_id && a.created_at.slice(0, 10) === day,
+        a.customer_id === c.id &&
+        (!actorId || a.actor_id === actorId) &&
+        a.created_at.slice(0, 10) === day,
     );
-  const missed = scheduled.filter((c) => day < jhbDate() && !done(c));
+  const done = (c: Customer) => actedOn(c);
+  const doneBy = (c: Customer, agentId: string) => actedOn(c, agentId);
+  const isMissed = (c: Customer, agentId?: string) =>
+    (c.next_action_date ?? "") < day && !(agentId ? doneBy(c, agentId) : done(c));
+  const missed = scheduled.filter((c) => isMissed(c));
   return (
     <section>
       <div className="mb-5 flex flex-wrap gap-2">
@@ -1537,21 +1642,31 @@ function Accountability({
             </tr>
           </thead>
           <tbody>
-            {profiles.map((p) => {
-              const list = scheduled.filter((c) => c.owner_id === p.id);
-              const count = list.filter(done).length;
+            {profiles
+              .map((p) => ({ p, list: scheduled.filter((c) => c.owner_id === p.id) }))
+              .filter(({ list }) => list.length > 0)
+              .map(({ p, list }) => {
+              const count = list.filter((c) => doneBy(c, p.id)).length;
+              const agentMissed = list.filter((c) => isMissed(c, p.id)).length;
               return (
                 <tr className="border-t border-border" key={p.id}>
                   <td className="p-3">{p.full_name}</td>
                   <td className="p-3">{list.length}</td>
                   <td className="p-3">{count}</td>
-                  <td className="p-3">{day < jhbDate() ? list.length - count : 0}</td>
+                  <td className="p-3">{agentMissed}</td>
                   <td className="p-3">
                     {list.length ? Math.round((count / list.length) * 100) : 0}%
                   </td>
                 </tr>
               );
             })}
+            {profiles.every((p) => !scheduled.some((c) => c.owner_id === p.id)) && (
+              <tr>
+                <td className="p-3 text-muted-foreground" colSpan={5}>
+                  No scheduled call backs for this date
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

@@ -105,8 +105,19 @@ function SignIn() {
               </div>
             )}
             <div>
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" name="email" type="email" required autoComplete="email" className="mt-1" placeholder="agent@fibregems.co.za" />
+              <Label htmlFor="email">Email or Agent Code</Label>
+              <Input
+                id="email"
+                name="email"
+                type="text"
+                required
+                autoComplete="username"
+                className="mt-1"
+                placeholder="e.g. agt101, tml101, adm101 or email"
+              />
+              <p className="mt-1 text-[10px] text-white/40">
+                Format: <span className="text-cyan-400 font-mono">agt</span> (Agent), <span className="text-amber-400 font-mono">tml</span> (Team Lead), <span className="text-orange-400 font-mono">adm</span> (Admin)
+              </p>
             </div>
             {mode !== "reset" && (
               <div>
@@ -123,13 +134,16 @@ function SignIn() {
 
           {mode === "signin" && (
             <div className="mt-4 rounded-xl border border-white/5 bg-white/[0.03] p-3 text-xs">
-              <p className="font-bold uppercase tracking-wider text-white/30 text-[10px]">Quick Demo Credentials:</p>
-              <div className="mt-2 flex gap-2">
-                <Button variant="outline" size="sm" type="button" onClick={() => fillDemo("admin@fibregems.co.za")}>
-                  Admin Demo
+              <p className="font-bold uppercase tracking-wider text-white/30 text-[10px]">Quick Demo Logins:</p>
+              <div className="mt-2 grid grid-cols-3 gap-1.5">
+                <Button variant="outline" size="sm" type="button" onClick={() => fillDemo("adm101")} className="text-xs font-mono text-orange-400 border-orange-500/20">
+                  adm101
                 </Button>
-                <Button variant="outline" size="sm" type="button" onClick={() => fillDemo("agent@fibregems.co.za")}>
-                  Agent Demo
+                <Button variant="outline" size="sm" type="button" onClick={() => fillDemo("tml101")} className="text-xs font-mono text-amber-400 border-amber-500/20">
+                  tml101
+                </Button>
+                <Button variant="outline" size="sm" type="button" onClick={() => fillDemo("agt101")} className="text-xs font-mono text-cyan-400 border-cyan-500/20">
+                  agt101
                 </Button>
               </div>
             </div>

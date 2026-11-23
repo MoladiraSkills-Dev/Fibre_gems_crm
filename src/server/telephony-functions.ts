@@ -12,7 +12,7 @@ import {
   type RemiResult,
 } from "./vicidial.server";
 
-const DISPOSITION_CODES = ["SALE", "CALLBACK", "PAYMENT_PROMISED", "NI", "DNC"] as const;
+const DISPOSITION_CODES = ["SALE", "CALLBACK", "CALLBK", "PAYMENT_PROMISED", "NI", "DNC"] as const;
 
 function lastNineDigits(value: string): string {
   return value.replace(/\D/g, "").slice(-9);

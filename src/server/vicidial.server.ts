@@ -174,6 +174,29 @@ export async function transferCall(destination: string, input?: { agentCode?: st
   });
 }
 
+export type VicidialCampaign = {
+  campaign_id: string;
+  campaign_name: string;
+  active: boolean;
+  user_group: string;
+  dial_method: string;
+  dial_level: string;
+  lead_order: string;
+  dial_statuses: string;
+  dial_timeout: string;
+  dial_prefix: string;
+};
+
+/**
+ * Read-only roll-call of campaigns that exist inside VICIdial itself
+ * (non_agent_api campaigns_list via the REMI backend).
+ */
+export async function fetchVicidialCampaigns(): Promise<
+  RemiResult<{ campaigns: VicidialCampaign[]; available: boolean; detail: string | null }>
+> {
+  return remiFetch("/api/v1/admin/campaigns/vicidial", { method: "GET" });
+}
+
 /** VICIdial dispositions used by FibreGems: SALE, CALLBACK, NI, PAYMENT_PROMISED. */
 export async function postDisposition(input: {
   phone?: string | null;

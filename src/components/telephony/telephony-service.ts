@@ -82,12 +82,12 @@ export async function setCallMuteApi(enabled: boolean) {
   }
 }
 
-export async function setAgentStatusApi(status: "ready" | "paused", pauseCode?: string) {
+export async function setAgentStatusApi(status: "ready" | "paused", pauseCode?: string, agentCode?: string | null) {
   try {
     const res = await fetch(`${API_BASE}/agent/status`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status, pause_code: pauseCode }),
+      body: JSON.stringify({ status, pause_code: pauseCode, agent_code: agentCode ?? null }),
     });
     if (res.ok) return await res.json();
   } catch {
@@ -120,6 +120,12 @@ export function formatCallTime(secs: number) {
   return `${m}:${s}`;
 }
 
+/** VICIdial uses both CALLBACK and CALLBK for callback dispositions. */
+export function isCallbackDisposition(disposition: string) {
+  const d = disposition.trim().toUpperCase();
+  return d === "CALLBACK" || d === "CALLBK";
+}
+
 export async function submitDispositionApi(params: {
   customerId: string;
   disposition: string;
@@ -137,7 +143,7 @@ export async function submitDispositionApi(params: {
       customerId: params.customerId,
       outcome: params.disposition,
       status: statusForOutcome(params.disposition, params.currentStatus),
-      nextAction: params.disposition === "CALLBACK" ? "Scheduled Callback" : null,
+      nextAction: isCallbackDisposition(params.disposition) ? "Scheduled Callback" : null,
       nextActionDate: params.callbackDate || null,
       notes,
     },

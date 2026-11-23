@@ -359,7 +359,7 @@ export function LeadImporterModal({ open, onOpenChange, onImported, preselectLis
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const stepLabels = ["Validating rows...", "Filtering duplicates & normalizing numbers...", "Syncing to database..."];
+  const stepLabels = ["Validating rows...", "Filtering duplicates & normalizing numbers...", "Syncing to database & VICIdial dialer..."];
 
   return (
     <Dialog open={open} onOpenChange={importing ? undefined : onOpenChange}>
@@ -879,6 +879,29 @@ export function LeadImporterModal({ open, onOpenChange, onImported, preselectLis
                     bg="bg-[#EF4444]/10"
                   />
                 </div>
+
+                {importResult.syncedToVicidial !== undefined && (
+                  <div
+                    className={`rounded-xl border p-4 text-sm ${
+                      (importResult.vicidialFailed ?? 0) === 0
+                        ? "border-[#22C55E]/20 bg-[#22C55E]/5"
+                        : "border-[#F5B021]/20 bg-[#F5B021]/5"
+                    }`}
+                  >
+                    <span className="font-semibold text-white">VICIdial dialer sync: </span>
+                    <span className="text-[#22C55E] font-mono font-bold">
+                      {importResult.syncedToVicidial.toLocaleString()} synced
+                    </span>
+                    {(importResult.vicidialFailed ?? 0) > 0 && (
+                      <span className="text-[#F5B021] font-mono font-bold">
+                        {" "}&bull; {importResult.vicidialFailed!.toLocaleString()} failed
+                      </span>
+                    )}
+                    {importResult.vicidialSyncError && (
+                      <p className="mt-1 text-xs text-white/40">{importResult.vicidialSyncError}</p>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex justify-end gap-2">
                   <Button

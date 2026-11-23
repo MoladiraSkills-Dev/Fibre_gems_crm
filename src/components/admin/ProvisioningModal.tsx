@@ -34,9 +34,15 @@ type Props = {
 };
 
 const ROLE_LABELS: Record<string, string> = {
-  agent: "Agent",
-  team_leader: "Team Leader",
-  admin: "Administrator",
+  agent: "Agent (agt)",
+  team_leader: "Team Leader (tml)",
+  admin: "Administrator (adm)",
+};
+
+const ROLE_PREFIX: Record<string, string> = {
+  agent: "agt",
+  team_leader: "tml",
+  admin: "adm",
 };
 
 export function ProvisioningModal({ open, onOpenChange, editingAgent, onSaved }: Props) {
@@ -53,6 +59,28 @@ export function ProvisioningModal({ open, onOpenChange, editingAgent, onSaved }:
   const [agentCode, setAgentCode] = useState("");
   const [phoneLogin, setPhoneLogin] = useState("");
   const [phonePass, setPhonePass] = useState("");
+
+  const handleRoleChange = (newRole: "agent" | "team_leader" | "admin") => {
+    setRole(newRole);
+    if (!isEdit) {
+      const newPrefix = ROLE_PREFIX[newRole];
+      const cleanExt = phoneLogin.replace(/\D/g, "");
+      if (!agentCode || /^(agt|tml|adm)\d*$/i.test(agentCode)) {
+        setAgentCode(cleanExt ? `${newPrefix}${cleanExt}` : "");
+      }
+    }
+  };
+
+  const handlePhoneLoginChange = (newPhone: string) => {
+    setPhoneLogin(newPhone);
+    if (!isEdit) {
+      const cleanExt = newPhone.replace(/\D/g, "");
+      const prefix = ROLE_PREFIX[role];
+      if (!agentCode || /^(agt|tml|adm)\d*$/i.test(agentCode)) {
+        setAgentCode(cleanExt ? `${prefix}${cleanExt}` : "");
+      }
+    }
+  };
 
   useEffect(() => {
     if (open) {
@@ -190,7 +218,7 @@ export function ProvisioningModal({ open, onOpenChange, editingAgent, onSaved }:
                 <Label htmlFor="agent-role" className="text-xs font-semibold uppercase text-white/60">
                   Role
                 </Label>
-                <Select value={role} onValueChange={(v) => setRole(v as typeof role)}>
+                <Select value={role} onValueChange={(v) => handleRoleChange(v as typeof role)}>
                   <SelectTrigger className="border-white/10 bg-[#0B0D11] text-white">
                     <SelectValue />
                   </SelectTrigger>
@@ -211,9 +239,12 @@ export function ProvisioningModal({ open, onOpenChange, editingAgent, onSaved }:
                   id="agent-code"
                   value={agentCode}
                   onChange={(e) => setAgentCode(e.target.value)}
-                  placeholder="Auto-generated if blank"
+                  placeholder={`Auto-suggest: ${ROLE_PREFIX[role]}...`}
                   className="border-white/10 bg-[#0B0D11] text-white"
                 />
+                <p className="text-[10px] text-white/40">
+                  Prefix: <span className="font-mono text-cyan-400">agt</span> (Agent), <span className="font-mono text-amber-400">tml</span> (Team Lead), <span className="font-mono text-orange-400">adm</span> (Admin)
+                </p>
               </div>
             </div>
 
@@ -273,8 +304,8 @@ export function ProvisioningModal({ open, onOpenChange, editingAgent, onSaved }:
                   <Input
                     id="phone-login"
                     value={phoneLogin}
-                    onChange={(e) => setPhoneLogin(e.target.value)}
-                    placeholder="e.g. gs102"
+                    onChange={(e) => handlePhoneLoginChange(e.target.value)}
+                    placeholder="e.g. 102"
                     className="border-white/10 bg-[#0B0D11] text-white"
                   />
                   {phoneLogin && (

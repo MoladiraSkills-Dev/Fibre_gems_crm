@@ -14,6 +14,7 @@ import {
   Users,
   Briefcase,
   FileSpreadsheet,
+  Package,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getCurrentUserFn, logoutFn } from "@/server/functions";
@@ -26,6 +27,7 @@ import { SupervisorCustomersView } from "./SupervisorCustomersView";
 import { AgentPortfolioView } from "./AgentPortfolioView";
 import { FloorLogsView } from "./FloorLogsView";
 import { DraggableCallDock, type DockSession } from "./DraggableCallDock";
+import { OrderStatsView } from "./OrderStatsView";
 
 type TeamLeadView =
   | "floor"
@@ -34,6 +36,7 @@ type TeamLeadView =
   | "logs"
   | "recordings"
   | "callbacks"
+  | "orders"
   | "stats"
   | "settings";
 
@@ -44,6 +47,7 @@ const NAV_ITEMS = [
   { id: "logs" as TeamLeadView, label: "Call & Activity Logs", icon: FileSpreadsheet },
   { id: "recordings" as TeamLeadView, label: "Recordings & QA", icon: Mic },
   { id: "callbacks" as TeamLeadView, label: "Callback Pool", icon: CalendarDays },
+  { id: "orders" as TeamLeadView, label: "Order Pipeline", icon: Package },
   { id: "stats" as TeamLeadView, label: "Shift Performance", icon: Trophy },
   { id: "settings" as TeamLeadView, label: "Supervisor Settings", icon: Sliders },
 ];
@@ -247,6 +251,7 @@ export function TeamLeadWorkspace() {
               }}
             />
           )}
+          {view === "orders" && <OrderStatsView />}
           {view === "stats" && (
             <AgentLeaderboardView
               onViewPortfolio={(agentId) => {

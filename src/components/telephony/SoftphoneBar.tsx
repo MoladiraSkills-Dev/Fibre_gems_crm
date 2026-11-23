@@ -59,11 +59,14 @@ export function SoftphoneBar({
     call_state?: string;
     duration_seconds?: number;
     lead_id?: string | number | null;
+    pause_code?: string | null;
   };
 
   // Track callProgress in a ref so the callback doesn't become stale
   const callProgressRef = useRef(telephonyState.callProgress);
   useEffect(() => { callProgressRef.current = telephonyState.callProgress; }, [telephonyState.callProgress]);
+  const agentStatusRef = useRef(telephonyState.agentStatus);
+  useEffect(() => { agentStatusRef.current = telephonyState.agentStatus; }, [telephonyState.agentStatus]);
 
   const onCallState = useCallback((event: CallStateEvent) => {
     if (event.type && event.type !== "CALL_STATE" && event.type !== "INIT_STATE") return;
@@ -73,6 +76,33 @@ export function SoftphoneBar({
       ? Math.max(0, Math.floor(event.duration_seconds ?? 0))
       : 0;
     const leadId = event.lead_id == null ? undefined : String(event.lead_id);
+    const pauseCode = typeof event.pause_code === "string" && event.pause_code ? event.pause_code : undefined;
+
+    // Supervisor/agent pause & resume pushes — apply regardless of call progress
+    if (callState === "paused" || agentStatus === "paused") {
+      setTelephonyState((prev) => ({
+        ...prev,
+        agentStatus: "paused",
+        callProgress: null,
+        ...(pauseCode ? { pauseCode } : {}),
+      }));
+      return;
+    }
+    // Only intercept ready/resume pushes when no call is in progress —
+    // during a call, "ready"/"idle" still flow to the call-end branch below.
+    const noCallInProgress =
+      callProgressRef.current !== "connected" &&
+      callProgressRef.current !== "ringing" &&
+      agentStatusRef.current !== "in_call" &&
+      agentStatusRef.current !== "dialing";
+    if (noCallInProgress && (callState === "ready" || agentStatus === "ready")) {
+      setTelephonyState((prev) =>
+        prev.agentStatus === "paused"
+          ? { ...prev, agentStatus: "ready", pauseCode: null, callProgress: null }
+          : prev,
+      );
+      return;
+    }
 
     if (callState === "ringing") {
       setTelephonyState((prev) => ({
@@ -103,22 +133,22 @@ export function SoftphoneBar({
     }
 
     if (callState === "idle" || callState === "ready") {
-      // Only transition to ended if the call was previously active/connected or ringing for a few seconds
-      if (callProgressRef.current === "connected") {
-        toast.info("Call ended — choose an outcome to continue.");
+      // Clear ANY active call state — connected, ringing, or a bare in_call/dialing
+      // status (e.g. after a supervisor force-hangup where progress may be unset).
+      const wasConnected = callProgressRef.current === "connected";
+      const wasActive =
+        wasConnected ||
+        callProgressRef.current === "ringing" ||
+        agentStatusRef.current === "in_call" ||
+        agentStatusRef.current === "dialing";
+      if (wasActive) {
+        if (wasConnected) toast.info("Call ended — choose an outcome to continue.");
+        else toast.info("Call unanswered or disconnected.");
         setTelephonyState((prev) => ({
           ...prev,
           agentStatus: "ready",
           callProgress: null,
-          callDurationSeconds: duration || prev.callDurationSeconds,
-        }));
-      } else if (callProgressRef.current === "ringing" && duration > 0) {
-        toast.info("Call unanswered or disconnected.");
-        setTelephonyState((prev) => ({
-          ...prev,
-          agentStatus: "ready",
-          callProgress: null,
-          callDurationSeconds: 0,
+          callDurationSeconds: wasConnected ? duration || prev.callDurationSeconds : 0,
         }));
       }
     }
@@ -150,7 +180,7 @@ export function SoftphoneBar({
   const handleTogglePause = async (code?: string) => {
     const newStatus = telephonyState.agentStatus === "paused" ? "ready" : "paused";
     setPauseMenuOpen(false);
-    await setAgentStatusApi(newStatus, code);
+    await setAgentStatusApi(newStatus, code, agentCode);
     setTelephonyState((prev) => ({
       ...prev,
       agentStatus: newStatus,

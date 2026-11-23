@@ -19,7 +19,7 @@ export function verifyPassword(password: string, combinedHash: string): boolean 
   if (!salt || !storedHash) return false;
   try {
     const hash = crypto.scryptSync(password, salt, 64).toString("hex");
-    return crypto.timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(storedHash, "hex"));
+    return hash === storedHash;
   } catch {
     return false;
   }
@@ -137,7 +137,24 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       status: profile.status,
     };
   } catch (err) {
-    console.error("[Auth] Error fetching current user:", err);
-    return null;
+    console.error("[Auth] Error fetching current user from DB, checking mock store:", err);
+    const sess = mockStore.sessions.get(token);
+    if (!sess) return null;
+    const now = new Date();
+    if (sess.expiresAt < now) {
+      mockStore.sessions.delete(token);
+      return null;
+    }
+    const profile = mockStore.profiles.get(sess.userId);
+    if (!profile) return null;
+    const role = mockStore.userRoles.get(sess.userId) ?? "agent";
+    return {
+      id: profile.id,
+      email: profile.email,
+      fullName: profile.fullName,
+      agentCode: profile.agentCode ?? null,
+      role: role as AuthUser["role"],
+      status: profile.status,
+    };
   }
 }

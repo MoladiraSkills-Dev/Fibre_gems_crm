@@ -96,7 +96,7 @@ export function AgilitySync() {
       const product = Object.keys(productMap).find((k) => lower.includes(k)) ?? null;
       const state = lower.includes("activated") ? "activated" : lower.includes("paymentrec") ? "paid" : null;
       const match = (orders ?? []).find(
-        (o) =>
+        (o: any) =>
           (ovr && o.ovr_number?.toUpperCase() === ovr) ||
           (ovk && o.ovk_number?.toUpperCase() === ovk)
       );

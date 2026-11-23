@@ -10,7 +10,9 @@ import {
   Megaphone,
   Pencil,
   Target,
+  Trash2,
   TrendingUp,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -18,6 +20,8 @@ import {
   createCampaignFn,
   updateCampaignFn,
   reloadHopperFn,
+  adoptVicidialCampaignFn,
+  deleteCampaignFn,
   type Campaign,
   type CampaignInput,
   type DialMethod,
@@ -45,6 +49,16 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // ----------------------------------------------------
 // Helpers
@@ -597,15 +611,21 @@ function CampaignCard({
   onToggle,
   onReload,
   onEdit,
+  onAdopt,
+  onDelete,
   toggling,
   reloading,
+  adopting,
 }: {
   campaign: Campaign;
   onToggle: (c: Campaign) => void;
   onReload: (c: Campaign) => void;
   onEdit: (c: Campaign) => void;
+  onAdopt: (c: Campaign) => void;
+  onDelete: (c: Campaign) => void;
   toggling: boolean;
   reloading: boolean;
+  adopting: boolean;
 }) {
   const dialLabel = DIAL_METHOD_LABEL[campaign.dialMethod];
   const conversionPct =
@@ -626,6 +646,11 @@ function CampaignCard({
             <span className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white/50">
               {campaign.campaignId}
             </span>
+            {campaign.source === "vicidial" && (
+              <span className="rounded bg-[#06B6D4]/15 px-1.5 py-0.5 text-[10px] font-bold text-[#06B6D4]">
+                VICIDIAL
+              </span>
+            )}
             <h3 className="truncate text-base font-bold text-white">{campaign.name}</h3>
           </div>
           <p className="mt-1 line-clamp-2 text-xs text-white/40">{campaign.description}</p>
@@ -674,6 +699,21 @@ function CampaignCard({
       </div>
 
       {/* Quick actions */}
+      {campaign.readOnly ? (
+        <div className="mt-4 flex items-center justify-between border-t border-white/5 pt-4">
+          <span className="text-xs text-white/40">Managed inside VICIdial</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onAdopt(campaign)}
+            disabled={adopting}
+            className="border-[#06B6D4]/30 text-[#06B6D4] hover:border-[#06B6D4]/60"
+          >
+            <Download className={`size-3.5 ${adopting ? "animate-pulse" : ""}`} />
+            {adopting ? "Adopting…" : "Adopt to CRM"}
+          </Button>
+        </div>
+      ) : (
       <div className="mt-4 flex items-center justify-between border-t border-white/5 pt-4">
         <div className="flex items-center gap-2">
           <Switch
@@ -705,8 +745,17 @@ function CampaignCard({
             <Pencil className="size-3.5" />
             Edit
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onDelete(campaign)}
+            className="border-white/10 text-white/60 hover:border-[#EF4444]/40 hover:text-[#EF4444]"
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -721,6 +770,9 @@ export function CampaignManager() {
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [reloadingId, setReloadingId] = useState<string | null>(null);
+  const [adoptingId, setAdoptingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Campaign | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const campaignsQ = useQuery({
     queryKey: ["admin-campaigns"],
@@ -762,6 +814,38 @@ export function CampaignManager() {
       toast.error(err instanceof Error ? err.message : "Failed to toggle campaign");
     } finally {
       setTogglingId(null);
+    }
+  };
+
+  const handleAdopt = async (c: Campaign) => {
+    setAdoptingId(c.id);
+    try {
+      const res = await adoptVicidialCampaignFn({ data: { campaignId: c.campaignId } });
+      toast.success(
+        res.alreadyExisted
+          ? "Campaign is already managed in the CRM"
+          : `Adopted "${res.campaign?.name ?? c.name}" — now fully editable`,
+      );
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to adopt campaign");
+    } finally {
+      setAdoptingId(null);
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteCampaignFn({ data: { id: deleteTarget.id } });
+      toast.success(`Campaign "${deleteTarget.name}" deleted`);
+      setDeleteTarget(null);
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete campaign");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -853,8 +937,11 @@ export function CampaignManager() {
               onToggle={handleToggle}
               onReload={handleReload}
               onEdit={handleEdit}
+              onAdopt={handleAdopt}
+              onDelete={setDeleteTarget}
               toggling={togglingId === c.id}
               reloading={reloadingId === c.id}
+              adopting={adoptingId === c.id}
             />
           ))}
         </div>
@@ -866,6 +953,33 @@ export function CampaignManager() {
         editing={editingCampaign}
         onSaved={refresh}
       />
+
+      {/* Delete confirmation */}
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent className="border-white/10 bg-[#12161F] text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete campaign?</AlertDialogTitle>
+            <AlertDialogDescription className="text-white/50">
+              This permanently deletes "{deleteTarget?.name}" and all of its lead lists
+              and imported leads from the CRM. VICIdial-side data is not affected.
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void handleDeleteConfirm();
+              }}
+              disabled={deleting}
+              className="bg-[#EF4444] text-white hover:bg-[#EF4444]/90"
+            >
+              {deleting ? "Deleting…" : "Delete campaign"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

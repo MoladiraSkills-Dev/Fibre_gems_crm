@@ -90,7 +90,8 @@ export const OUTCOMES = [
 export type OutcomeCode = (typeof OUTCOMES)[number]["code"];
 
 export function outcomeFor(code: string) {
-  return OUTCOMES.find((o) => o.code === code);
+  const normalized = code.trim().toUpperCase() === "CALLBK" ? "CALLBACK" : code.trim().toUpperCase();
+  return OUTCOMES.find((o) => o.code === normalized);
 }
 
 export function statusForOutcome(code: string, currentStatus: string) {

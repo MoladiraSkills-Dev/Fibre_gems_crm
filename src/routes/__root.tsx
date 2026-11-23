@@ -91,6 +91,24 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
+    scripts: [
+      {
+        children: `
+          window.global = window;
+          if (typeof window.Buffer === "undefined") {
+            window.Buffer = {
+              isBuffer: function() { return false; },
+              from: function(d) {
+                if (typeof d === "string") return new TextEncoder().encode(d);
+                return new Uint8Array(d || 0);
+              },
+              alloc: function(s) { return new Uint8Array(s); },
+              allocUnsafe: function(s) { return new Uint8Array(s); },
+            };
+          }
+        `,
+      },
+    ],
     links: [
       {
         rel: "stylesheet",

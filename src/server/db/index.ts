@@ -1,20 +1,48 @@
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
 import * as schema from "./schema";
 
-const dbUrl = process.env.DATABASE_URL || process.env.LOVABLE_DB_MIGRATION_URL || process.env.POSTGRES_URL;
+const dbUrl =
+  typeof process !== "undefined" && process.env
+    ? process.env.DATABASE_URL || process.env.LOVABLE_DB_MIGRATION_URL || process.env.POSTGRES_URL
+    : undefined;
 
-let drizzleDb: ReturnType<typeof drizzle<typeof schema>> | null = null;
+let drizzleDb: any = null;
 
 export function isMockMode(): boolean {
+  if (typeof window !== "undefined") return true;
   return !dbUrl;
 }
 
+function getNodeRequire() {
+  if (typeof window !== "undefined") return null;
+  try {
+    if (
+      typeof globalThis.process !== "undefined" &&
+      typeof (globalThis.process as any).getBuiltinModule === "function"
+    ) {
+      return (globalThis.process as any).getBuiltinModule("module").createRequire(import.meta.url);
+    }
+  } catch {}
+  try {
+    // @ts-ignore
+    if (typeof require !== "undefined") return require;
+  } catch {}
+  return null;
+}
+
 export function getDb() {
+  if (typeof window !== "undefined") {
+    throw new Error("getDb cannot be called in the browser");
+  }
   if (!dbUrl) {
     throw new Error("DATABASE_URL is not set. Please set DATABASE_URL in your .env file.");
   }
   if (!drizzleDb) {
+    const nodeReq = getNodeRequire();
+    if (!nodeReq) {
+      throw new Error("Node.js require environment unavailable for database connection");
+    }
+    const { drizzle } = nodeReq("drizzle-orm/postgres-js");
+    const postgres = nodeReq("postgres");
     const client = postgres(dbUrl, {
       max: 10,
       idle_timeout: 20,
@@ -127,7 +155,8 @@ export interface MockBatch {
 // Default seed data for development
 const ADMIN_ID = "00000000-0000-0000-0000-000000000001";
 const AGENT_ID = "00000000-0000-0000-0000-000000000002";
-// Password for both is "password123"
+const TEAM_LEAD_ID = "00000000-0000-0000-0000-000000000003";
+// Password for all seed accounts is "password123"
 const DEFAULT_PASSWORD_HASH = "d1b09b0b4a4cb99c017efad83ff6e9ea:6e6fba040f7f3f619e078ba151323f666fca554ffaa07da4aa27d420f4c9c6123498806dc5fcb51dc73468903e1b74251f22ba5427d11f67f9754f24c30c8ad2";
 
 const initialProfiles = new Map<string, MockProfile>([
@@ -135,7 +164,7 @@ const initialProfiles = new Map<string, MockProfile>([
     ADMIN_ID,
     {
       id: ADMIN_ID,
-      agentCode: "ADM-01",
+      agentCode: "adm101",
       fullName: "Admin Commander",
       email: "admin@fibregems.co.za",
       passwordHash: DEFAULT_PASSWORD_HASH,
@@ -149,9 +178,23 @@ const initialProfiles = new Map<string, MockProfile>([
     AGENT_ID,
     {
       id: AGENT_ID,
-      agentCode: "AGT-01",
+      agentCode: "agt101",
       fullName: "Sipho Dlamini",
       email: "agent@fibregems.co.za",
+      passwordHash: DEFAULT_PASSWORD_HASH,
+      status: "active",
+      teamId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  ],
+  [
+    TEAM_LEAD_ID,
+    {
+      id: TEAM_LEAD_ID,
+      agentCode: "tml101",
+      fullName: "Team Leader Alpha",
+      email: "teamlead@fibregems.co.za",
       passwordHash: DEFAULT_PASSWORD_HASH,
       status: "active",
       teamId: null,
@@ -164,6 +207,7 @@ const initialProfiles = new Map<string, MockProfile>([
 const initialRoles = new Map<string, string>([
   [ADMIN_ID, "admin"],
   [AGENT_ID, "agent"],
+  [TEAM_LEAD_ID, "team_leader"],
 ]);
 
 const initialCustomers = new Map<string, MockCustomer>([

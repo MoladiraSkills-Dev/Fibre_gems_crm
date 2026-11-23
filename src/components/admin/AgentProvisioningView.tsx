@@ -10,11 +10,23 @@ import {
   Users,
   Pencil,
   Copy,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   listAgentsFn,
   toggleAgentStatusFn,
+  deleteAgentFn,
   type AdminAgentRow,
 } from "@/server/admin-functions";
 import { Button } from "@/components/ui/button";
@@ -60,6 +72,8 @@ export function AgentProvisioningView() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AdminAgentRow | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [deletingAgent, setDeletingAgent] = useState<AdminAgentRow | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const agentsQ = useQuery({
     queryKey: ["admin-agents", search, roleFilter],
@@ -105,6 +119,21 @@ export function AgentProvisioningView() {
       toast.error(err instanceof Error ? err.message : "Failed to toggle agent");
     } finally {
       setTogglingId(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deletingAgent) return;
+    setDeleteBusy(true);
+    try {
+      await deleteAgentFn({ data: { id: deletingAgent.id } });
+      toast.success(`${deletingAgent.full_name} deleted`);
+      setDeletingAgent(null);
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete agent");
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -273,17 +302,28 @@ export function AgentProvisioningView() {
                   />
                 </td>
 
-                {/* Edit button */}
+                {/* Actions */}
                 <td className="px-4 py-4 text-right">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleEdit(agent)}
-                    className="border-white/10 text-white hover:border-[#F5B021]/40 hover:text-[#F5B021]"
-                  >
-                    <Pencil className="size-3.5" />
-                    Edit
-                  </Button>
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleEdit(agent)}
+                      className="border-white/10 text-white hover:border-[#F5B021]/40 hover:text-[#F5B021]"
+                    >
+                      <Pencil className="size-3.5" />
+                      Edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setDeletingAgent(agent)}
+                      className="border-white/10 text-white/50 hover:border-[#EF4444]/50 hover:text-[#EF4444]"
+                      aria-label={`Delete ${agent.full_name}`}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -325,6 +365,35 @@ export function AgentProvisioningView() {
         editingAgent={editingAgent}
         onSaved={refresh}
       />
+
+      {/* Delete confirmation */}
+      <AlertDialog open={Boolean(deletingAgent)} onOpenChange={(open) => !open && setDeletingAgent(null)}>
+        <AlertDialogContent className="border-white/10 bg-[#12161F] text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deletingAgent?.full_name}?</AlertDialogTitle>
+            <AlertDialogDescription className="text-white/60">
+              This permanently removes the agent's CRM login, role and SIP credentials.
+              If they still own customers, calls or activity records the delete will be
+              blocked to protect historical data — suspend them instead.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-white/10 bg-transparent text-white hover:bg-white/5">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void handleDelete();
+              }}
+              disabled={deleteBusy}
+              className="bg-[#EF4444] text-white hover:bg-[#EF4444]/90"
+            >
+              {deleteBusy ? "Deleting…" : "Delete agent"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

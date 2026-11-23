@@ -32,7 +32,7 @@ async function backendFetch<T>(path: string, options: RequestInit = {}): Promise
   }
 }
 
-export type LiveAgentStatus = "INCALL" | "READY" | "PAUSED" | "DEAD";
+export type LiveAgentStatus = "INCALL" | "READY" | "PAUSED" | "DEAD" | "OFFLINE" | "DIALER_OFF";
 
 export type LiveAgent = {
   agent_id: string;
@@ -48,61 +48,12 @@ export type LiveAgent = {
   role?: string;
   is_team_leader?: boolean;
   active_customer: { customer_id: string; full_name: string; phone: string; suburb: string } | null;
+  crm_online?: boolean;
+  vicidial_status?: string | null;
+  vicidial_extension?: string | null;
+  extension_match?: boolean | null;
+  callerid?: string | null;
 };
-
-type SeedAgent = Omit<LiveAgent, "seconds_in_state"> & { base_seconds: number };
-
-const SEED_AGENTS: SeedAgent[] = [
-  {
-    agent_id: "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
-    agent_code: "Mukona_T",
-    full_name: "Mukona Tshifhiwa",
-    extension: "gs102",
-    session_id: "8600051",
-    status: "INCALL",
-    sub_status: "LIVE",
-    base_seconds: 184,
-    pause_code: null,
-    campaign_id: "1001",
-    active_customer: { customer_id: "e3b0c442-98fc-1c14-9af0-2b0d7b3dcb6d", full_name: "Sipho Khumalo", phone: "0842840069", suburb: "Soweto" },
-  },
-  {
-    agent_id: "2f6c1e0a-8a1b-4d7e-9c3f-1a2b3c4d5e6f",
-    agent_code: "Naledi_M",
-    full_name: "Naledi Mokoena",
-    extension: "gs103",
-    session_id: "8600052",
-    status: "READY",
-    sub_status: "WAITING",
-    base_seconds: 62,
-    pause_code: null,
-    campaign_id: "1001",
-    active_customer: null,
-  },
-  {
-    agent_id: "7d1a9c3e-5b2f-4e8a-a6d0-9f8e7d6c5b4a",
-    agent_code: "Thabo_K",
-    full_name: "Thabo Khoza",
-    extension: "gs104",
-    session_id: "8600053",
-    status: "PAUSED",
-    sub_status: "PAUSED",
-    base_seconds: 1140,
-    pause_code: "LUNCH",
-    campaign_id: "1001",
-    active_customer: null,
-  },
-];
-
-const STARTED_AT = Date.now();
-
-function liveAgentsFallback(): LiveAgent[] {
-  const elapsed = Math.floor((Date.now() - STARTED_AT) / 1000);
-  return SEED_AGENTS.map(({ base_seconds, ...agent }) => ({
-    ...agent,
-    seconds_in_state: base_seconds + elapsed,
-  }));
-}
 
 export const getLiveAgentsFn = createServerFn({ method: "GET" }).handler(async () => {
   requireTeamLead(await getCurrentUser());
@@ -112,19 +63,18 @@ export const getLiveAgentsFn = createServerFn({ method: "GET" }).handler(async (
   }>("/api/v1/supervisor/agents/live");
 
   if (live && Array.isArray(live.agents)) {
-    return live;
+    // Floor monitor shows only agents and team leaders — never admins/unknown roles
+    const agents = live.agents.filter((a) => {
+      const role = (a.role ?? "").toLowerCase();
+      return role === "agent" || role === "team_leader" || a.is_team_leader === true;
+    });
+    return { ...live, agents };
   }
 
-  // Graceful fallback if backend is momentarily offline
-  const fallback = liveAgentsFallback();
+  // Backend unreachable: return an honest empty floor — no fabricated agents
   return {
-    summary: {
-      total_logged_in: fallback.length,
-      in_call: fallback.filter((a) => a.status === "INCALL").length,
-      ready: fallback.filter((a) => a.status === "READY").length,
-      paused: fallback.filter((a) => a.status === "PAUSED").length,
-    },
-    agents: fallback,
+    summary: { total_logged_in: 0, in_call: 0, ready: 0, paused: 0 },
+    agents: [] as LiveAgent[],
   };
 });
 

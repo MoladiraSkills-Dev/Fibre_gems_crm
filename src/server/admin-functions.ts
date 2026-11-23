@@ -117,6 +117,15 @@ export type CreateAgentInput = {
   status?: string;
 };
 
+export function getDefaultAgentCode(role: "agent" | "team_leader" | "admin", ext?: string | null): string {
+  const prefix = role === "team_leader" ? "TML" : role === "admin" ? "ADM" : "AGT";
+  if (ext) {
+    const clean = ext.replace(/\D/g, "");
+    if (clean) return `${prefix}${clean}`;
+  }
+  return `${prefix}${Math.floor(100 + Math.random() * 900)}`;
+}
+
 export const createAgentFn = createServerFn({ method: "POST" })
   .validator(
     (data: CreateAgentInput) => {
@@ -132,9 +141,9 @@ export const createAgentFn = createServerFn({ method: "POST" })
 
     const email = data.email.trim().toLowerCase();
     const fullName = data.full_name.trim();
-    const agentCode = data.agent_code?.trim() || `AGT-${Math.floor(100 + Math.random() * 900)}`;
     const phoneLogin = data.phone_login?.trim() || null;
     const phonePass = data.phone_pass?.trim() || null;
+    const agentCode = data.agent_code?.trim() || getDefaultAgentCode(data.role, phoneLogin);
     const status = data.status || "active";
     const hashedPassword = hashPassword(data.password);
 
@@ -161,51 +170,76 @@ export const createAgentFn = createServerFn({ method: "POST" })
       mockStore.profiles.set(newId, newProfile);
       mockStore.userRoles.set(newId, data.role);
 
+      // Trigger PBX / VICIdial background provisioning if backend is available
+      void backendFetch("/api/v1/admin/agents/provision", {
+        method: "POST",
+        body: JSON.stringify({
+          full_name: fullName,
+          email,
+          password: data.password,
+          role: data.role,
+          agent_code: agentCode,
+          phone_login: phoneLogin,
+          phone_pass: phonePass,
+        }),
+      }).catch(() => null);
+
       return {
         success: true,
         agent: rowFromMock(newProfile),
       };
     }
 
-    const db = getDb();
-    const [existing] = await db
-      .select()
-      .from(profiles)
-      .where(eq(profiles.email, email))
-      .limit(1);
-    if (existing) throw new Error("An agent with this email already exists");
-
-    const [newProfile] = await db
-      .insert(profiles)
-      .values({
-        fullName,
-        email,
-        agentCode,
-        passwordHash: hashedPassword,
-        phoneLogin,
-        phonePass,
-        status,
-      })
-      .returning();
-
-    await db.insert(userRoles).values({
-      userId: newProfile.id,
-      role: data.role,
-    });
+    // Production: delegate to the FastAPI backend which provisions the agent in
+    // VICIdial (add_phone + add_user via non_agent_api POST) AND upserts the CRM
+    // profile + role in Postgres. Fails loudly if VICIdial rejects the writes.
+    type ProvisionResponse = {
+      id: string;
+      full_name: string;
+      email: string | null;
+      agent_code: string | null;
+      phone_login: string | null;
+      phone_pass: string | null;
+      role: string;
+      is_active: boolean;
+      created_at: string | null;
+    };
+    const provisioned = await backendFetch<ProvisionResponse>(
+      "/api/v1/admin/agents/provision",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          full_name: fullName,
+          email,
+          password: data.password,
+          role: data.role,
+          // Only forward an explicitly chosen agent_code — otherwise the backend
+          // derives it from the real assigned SIP extension.
+          agent_code: data.agent_code?.trim() || null,
+          phone_login: phoneLogin,
+          phone_pass: phonePass,
+        }),
+      },
+    );
+    if (!provisioned) {
+      throw new Error(
+        "Agent provisioning failed — the telephony backend rejected the request or is unreachable. No agent was created.",
+      );
+    }
 
     return {
       success: true,
       agent: {
-        id: newProfile.id,
-        full_name: newProfile.fullName,
-        email: newProfile.email,
-        agent_code: newProfile.agentCode,
-        phone_login: newProfile.phoneLogin,
-        phone_pass: newProfile.phonePass,
-        status: newProfile.status,
-        role: data.role,
-        team_id: newProfile.teamId,
-        created_at: newProfile.createdAt.toISOString(),
+        id: provisioned.id,
+        full_name: provisioned.full_name,
+        email: provisioned.email ?? email,
+        agent_code: provisioned.agent_code,
+        phone_login: provisioned.phone_login,
+        phone_pass: provisioned.phone_pass,
+        status: provisioned.is_active ? "active" : "suspended",
+        role: (provisioned.role as AdminAgentRow["role"]) ?? data.role,
+        team_id: null,
+        created_at: provisioned.created_at ?? new Date().toISOString(),
       } as AdminAgentRow,
     };
   });
@@ -314,5 +348,246 @@ export const toggleAgentStatusFn = createServerFn({ method: "POST" })
       .set({ status, updatedAt: new Date() })
       .where(eq(profiles.id, data.id));
 
+    // Best-effort sync of the active flag into VICIdial (update_user).
+    // The CRM status above remains authoritative for the UI even if the
+    // dialer is temporarily unreachable.
+    void backendFetch(`/api/v1/admin/agents/${encodeURIComponent(data.id)}/toggle`, {
+      method: "PATCH",
+      body: JSON.stringify({ active: data.active }),
+    }).catch(() => null);
+
     return { success: true, status };
   });
+
+export const deleteAgentFn = createServerFn({ method: "POST" })
+  .validator((data: { id: string }) => {
+    if (!data.id) throw new Error("Agent ID is required");
+    return data;
+  })
+  .handler(async ({ data }) => {
+    const me = requireAdmin(await getCurrentUser());
+    if (data.id === me.id) throw new Error("You cannot delete your own account");
+
+    if (isMockMode()) {
+      if (!mockStore.profiles.has(data.id)) throw new Error("Agent not found");
+      mockStore.profiles.delete(data.id);
+      mockStore.userRoles.delete(data.id);
+      return { success: true };
+    }
+
+    const db = getDb();
+    try {
+      await db.delete(profiles).where(eq(profiles.id, data.id));
+    } catch (err) {
+      if ((err as { code?: string })?.code === "23503") {
+        throw new Error(
+          "Cannot delete this agent — they still own customers, calls or activity records. Reassign their data or suspend the agent instead to preserve history.",
+        );
+      }
+      throw err;
+    }
+
+    // Best-effort: deactivate the VICIdial agent user so they can't log into the dialer.
+    void backendFetch(`/api/v1/admin/agents/${encodeURIComponent(data.id)}/toggle`, {
+      method: "PATCH",
+      body: JSON.stringify({ active: false }),
+    }).catch(() => null);
+
+    return { success: true };
+  });
+
+export async function backendFetch<T>(path: string, options: RequestInit = {}): Promise<T | null> {
+  try {
+    const backendBase = (
+      process.env["REMI_API_URL"] ||
+      process.env["VICIDIAL_API_URL"] ||
+      "http://127.0.0.1:8000"
+    ).replace(/\/+$/, "");
+    const token = process.env["REMI_API_TOKEN"] || process.env["VICIDIAL_API_TOKEN"];
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(`${backendBase}${path}`, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+export type ExecutiveDashboardData = {
+  floor: {
+    loggedIn: number;
+    inCall: number;
+    ready: number;
+    paused: number;
+  };
+  kpis: {
+    totalDialsToday: number;
+    answersToday: number;
+    contactRatePct: number;
+    salesToday: number;
+    conversionRatePct: number;
+    ahtSeconds: number;
+    totalTalkSeconds: number;
+    dropRatePct: number;
+  };
+  hourlyFlow: Array<{
+    hour: string;
+    dials: number;
+    connected: number;
+  }>;
+  dispositionBreakdown: Array<{
+    name: string;
+    count: number;
+    fill: string;
+  }>;
+  timeAllocation: {
+    talkPct: number;
+    waitPct: number;
+    pausePct: number;
+  };
+  recentCalls: Array<{
+    id: string;
+    agentName: string;
+    agentCode: string;
+    customerName: string;
+    customerPhone: string;
+    disposition: string;
+    durationSeconds: number;
+    startedAt: string;
+    recordingUrl?: string | null;
+  }>;
+  liveAgents: Array<{
+    agent_id: string;
+    agent_code: string;
+    full_name: string;
+    extension: string;
+    status: string;
+    seconds_in_state: number;
+    pause_code?: string | null;
+  }>;
+  salesLeads: Array<{
+    id: string;
+    customerName: string;
+    phone: string;
+    package: string;
+    agentName: string;
+    durationSeconds: number;
+    time: string;
+  }>;
+};
+
+export const getExecutiveDashboardStatsFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<ExecutiveDashboardData> => {
+    requireAdmin(await getCurrentUser());
+
+    // 1. Fetch live telemetry from FastAPI backend
+    const adminStats = await backendFetch<{
+      floor: { loggedIn: number; inCall: number; ready: number; paused: number };
+      kpis: {
+        totalDialsToday: number;
+        answersToday: number;
+        contactRatePct: number;
+        salesToday: number;
+        conversionRatePct: number;
+        ahtSeconds: number;
+        totalTalkSeconds: number;
+        dropRatePct: number;
+      };
+      hourly_flow: Array<{ hour: string; dials: number; connected: number }>;
+      disposition_breakdown: Array<{ name: string; count: number; fill: string }>;
+      recent_calls: Array<any>;
+      live_agents: Array<any>;
+      sales_leads: Array<any>;
+    }>("/api/v1/admin/stats");
+
+    if (adminStats && adminStats.kpis) {
+      const talkSec = adminStats.kpis.totalTalkSeconds || 0;
+      const waitSec = Math.max(0, adminStats.kpis.answersToday * 30);
+      const totalFloorSec = talkSec + waitSec + 1;
+
+      return {
+        floor: adminStats.floor ?? { loggedIn: 0, inCall: 0, ready: 0, paused: 0 },
+        kpis: adminStats.kpis,
+        hourlyFlow: adminStats.hourly_flow ?? [],
+        dispositionBreakdown: adminStats.disposition_breakdown ?? [],
+        timeAllocation: {
+          talkPct: totalFloorSec > 0 ? Math.min(100, Math.round((talkSec / totalFloorSec) * 100)) : 0,
+          waitPct: totalFloorSec > 0 ? Math.min(100, Math.round((waitSec / totalFloorSec) * 100)) : 0,
+          pausePct: 0,
+        },
+        recentCalls: adminStats.recent_calls ?? [],
+        liveAgents: adminStats.live_agents ?? [],
+        salesLeads: adminStats.sales_leads ?? [],
+      };
+    }
+
+    // 2. Direct PostgreSQL fallback if backend API is not yet called
+    if (!isMockMode()) {
+      try {
+        const db = getDb();
+        // Return clean zero-based real structure
+        return {
+          floor: { loggedIn: 0, inCall: 0, ready: 0, paused: 0 },
+          kpis: {
+            totalDialsToday: 0,
+            answersToday: 0,
+            contactRatePct: 0,
+            salesToday: 0,
+            conversionRatePct: 0,
+            ahtSeconds: 0,
+            totalTalkSeconds: 0,
+            dropRatePct: 0,
+          },
+          hourlyFlow: [
+            { hour: "08:00", dials: 0, connected: 0 },
+            { hour: "09:00", dials: 0, connected: 0 },
+            { hour: "10:00", dials: 0, connected: 0 },
+            { hour: "11:00", dials: 0, connected: 0 },
+            { hour: "12:00", dials: 0, connected: 0 },
+            { hour: "13:00", dials: 0, connected: 0 },
+            { hour: "14:00", dials: 0, connected: 0 },
+            { hour: "15:00", dials: 0, connected: 0 },
+            { hour: "16:00", dials: 0, connected: 0 },
+            { hour: "17:00", dials: 0, connected: 0 },
+          ],
+          dispositionBreakdown: [],
+          timeAllocation: { talkPct: 0, waitPct: 0, pausePct: 0 },
+          recentCalls: [],
+          liveAgents: [],
+          salesLeads: [],
+        };
+      } catch {}
+    }
+
+    // 3. Fallback with honest real counts
+    return {
+      floor: { loggedIn: 0, inCall: 0, ready: 0, paused: 0 },
+      kpis: {
+        totalDialsToday: 0,
+        answersToday: 0,
+        contactRatePct: 0,
+        salesToday: 0,
+        conversionRatePct: 0,
+        ahtSeconds: 0,
+        totalTalkSeconds: 0,
+        dropRatePct: 0,
+      },
+      hourlyFlow: [],
+      dispositionBreakdown: [],
+      timeAllocation: { talkPct: 0, waitPct: 0, pausePct: 0 },
+      recentCalls: [],
+      liveAgents: [],
+      salesLeads: [],
+    };
+  },
+);

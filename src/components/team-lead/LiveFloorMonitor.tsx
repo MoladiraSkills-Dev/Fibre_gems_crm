@@ -96,7 +96,13 @@ export function LiveFloorMonitor() {
         const callState = delta.call_state ?? "idle";
         const isIncall = callState === "connected" || callState === "ringing" || callState === "dialing";
         const isPaused = callState === "paused";
-        const nextStatus = isIncall ? ("INCALL" as const) : isPaused ? ("PAUSED" as const) : ("READY" as const);
+        // WebSocket deltas only override dialer-live states. An agent with no CRM
+        // session stays OFFLINE, and a CRM-only agent stays DIALER_OFF — the WS
+        // feed cannot make either of them appear on the floor.
+        const dialerLive = agent.status !== "OFFLINE" && agent.status !== "DIALER_OFF";
+        const nextStatus = !dialerLive
+          ? agent.status
+          : isIncall ? ("INCALL" as const) : isPaused ? ("PAUSED" as const) : ("READY" as const);
         return {
           ...agent,
           status: nextStatus,
@@ -107,10 +113,10 @@ export function LiveFloorMonitor() {
       });
       const inCallCount = agents.filter((a) => a.status === "INCALL").length;
       const pausedCount = agents.filter((a) => a.status === "PAUSED").length;
-      const readyCount = Math.max(0, agents.length - inCallCount - pausedCount);
+      const readyCount = agents.filter((a) => a.status === "READY").length;
       return {
         summary: {
-          total_logged_in: agents.length,
+          total_logged_in: agents.filter((a) => a.crm_online !== false).length,
           in_call: inCallCount,
           ready: readyCount,
           paused: pausedCount,
@@ -135,7 +141,21 @@ export function LiveFloorMonitor() {
   });
 
   function handleAction(next: AgentAction) {
-    if (next.kind === "hangup" && !window.confirm(`Force hang up the call for ${next.agent.full_name}?`)) return;
+    if (next.kind === "hangup") {
+      toast(`Force hang up the call for ${next.agent.full_name}?`, {
+        description: "This immediately terminates the agent's live call.",
+        duration: 8000,
+        action: {
+          label: "Hang up",
+          onClick: () => action.mutate(next),
+        },
+        cancel: {
+          label: "Cancel",
+          onClick: () => {},
+        },
+      });
+      return;
+    }
     action.mutate(next);
   }
 

@@ -13,6 +13,8 @@ const STATUS_BADGE: Record<LiveAgent["status"], { label: string; className: stri
   READY: { label: "Ready", className: "border-cyan-500/50 bg-cyan-500/15 text-cyan-300" },
   PAUSED: { label: "Paused", className: "border-amber-500/50 bg-amber-500/15 text-amber-300" },
   DEAD: { label: "Finalising", className: "border-red-500/50 bg-red-500/15 text-red-400" },
+  OFFLINE: { label: "Offline", className: "border-zinc-500/50 bg-zinc-500/15 text-zinc-400" },
+  DIALER_OFF: { label: "Not on dialer", className: "border-orange-500/50 bg-orange-500/15 text-orange-300" },
 };
 
 const PAUSE_WARNING_SECONDS = 15 * 60;
@@ -60,9 +62,9 @@ export function AgentStatusCard({
     setLocalSec(secInState);
   }, [secInState]);
 
-  // Tick elapsed time smoothly every second ONLY if agent is in a call or on pause
+  // Tick elapsed time smoothly every second for any live floor state
   useEffect(() => {
-    if (agent.status !== "INCALL" && agent.status !== "PAUSED") return;
+    if (agent.status === "DEAD") return;
     const timer = setInterval(() => {
       setLocalSec((s) => s + 1);
     }, 1000);
